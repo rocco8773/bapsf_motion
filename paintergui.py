@@ -24,7 +24,7 @@ from MainWindow import Ui_MainWindow
 MODES = [
 
     'line', 'polyline',
-    'rect',
+    'rect', 'barrier'
 ]
 
 
@@ -50,12 +50,12 @@ class MplCanvas(FigureCanvas):
 
         # self.ax.set_xticks(np.arange(-60,60,1))
         uss = np.linspace(0, 2 * np.pi, 32)
-        zss = np.linspace(-100, 100, 2)
+        zss = np.linspace(-3, 3, 2)
 
         uss, zss = np.meshgrid(uss, zss)
 
-        xss = 250 * np.cos(uss)
-        yss = 250 * np.sin(uss)
+        xss = 50 * np.cos(uss)
+        yss = 50 * np.sin(uss)
         self.ax.plot_surface(xss,yss,zss,alpha = 0.5, color = 'grey')
         super(MplCanvas, self).__init__(self.fig)
 
@@ -82,6 +82,7 @@ class Canvas(QLabel):
         self.background_color =  QColor(Qt.gray)
         self.eraser_color = QColor(Qt.white)
         self.eraser_color.setAlpha(100)
+        self.hand = 0
         self.reset()
         self.xpos =  []
         self.ypos = []
@@ -90,25 +91,30 @@ class Canvas(QLabel):
         self.z1 = 1
         self.z2 = 1
         self.poslist = []
+        self.barlist = []
         self.cx = 0
         self.cy = 0
+        self.bar = 0
+        
         p = QPainter(self.pixmap())
         p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-
-
-        p.setBrush(QBrush(QColor(Qt.white)))
-
-        p.drawEllipse(QPointF(300,300),250,250)
-        p.drawRect(QRectF(550,290,10,20))
-        p.drawLine(290,50,560,310)
-        p.drawLine(290,550,560,290)
+       
         p.setBrush(QBrush(QColor(Qt.red)))
 
         p.drawEllipse(QPointF(300,300),1,1)
 
-        # p.drawRect(QRectF(50,290,-10,20))
-        # p.drawLine(290,50,40,310)
-        # p.drawLine(290,550,40,290)
+        p.setBrush(QBrush(QColor(Qt.white)))
+
+        p.drawEllipse(QPointF(300,300),250,250)
+        if self.hand == 0:
+            p.drawRect(QRectF(550,290,10,20))
+            p.drawLine(290,50,560,310)
+            p.drawLine(290,550,560,290)
+        
+        elif self.hand == 1:
+            p.drawRect(QRectF(50,290,-10,20))
+            p.drawLine(290,50,40,310)
+            p.drawLine(290,550,40,290)
 
         self.update()
 
@@ -123,9 +129,16 @@ class Canvas(QLabel):
         p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.setBrush(QBrush(QColor(Qt.white)))
         p.drawEllipse(QPointF(300,300),250,250)
-        p.drawRect(QRectF(550,290,10,20))
-        p.drawLine(290,50,560,310)
-        p.drawLine(290,550,560,290)
+        
+        if self.hand ==0:
+            p.drawRect(QRectF(550,290,10,20))
+            p.drawLine(290,50,560,310)
+            p.drawLine(290,550,560,290)
+        elif self.hand ==1:
+            p.drawRect(QRectF(50,290,-10,20))
+            p.drawLine(290,50,40,310)
+            p.drawLine(290,550,40,290)            
+        
         p.setBrush(QBrush(QColor(Qt.red)))
 
         p.drawEllipse(QPointF(300,300),1,1)
@@ -133,7 +146,14 @@ class Canvas(QLabel):
     def set_primary_color(self, hex):
         self.primary_color = QColor(hex)
 
+    def set_hand(self):
+        if self.hand == 0:
+            self.hand =1
+        elif self.hand ==1:
+            self.hand = 0
 
+        self.reset()    
+        
     def set_mode(self, mode):
         # Clean up active timer animations.
         self.timer_cleanup()
@@ -180,26 +200,46 @@ class Canvas(QLabel):
             msg.setInformativeText('Designated point is outside the Machine!')
             msg.setWindowTitle("Error")
             msg.exec_()
+        
+        if self.hand ==0:
+            if  (e.y()  - 310 -  e.x() +  560 < 0):
 
-        elif  (e.y()  - 310 -  e.x() +  560 < 0):
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
 
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Error")
-            msg.setInformativeText('Designated point is outside of reach!!')
-            msg.setWindowTitle("Error")
-            msg.exec_()
+            elif  (e.y() -290  + e.x() -  560 > 0):
 
-        elif  (e.y() -290  + e.x() -  560 > 0):
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
 
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Error")
-            msg.setInformativeText('Designated point is outside of reach!')
-            msg.setWindowTitle("Error")
-            msg.exec_()
+        if self.hand == 1:
+            if  (e.y()  - 310 + e.x() -40 < 0):
 
-        elif e.x() is not None and e.y() is not None:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+            elif  (e.y() -290  - e.x() +  40 > 0):
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+                
+        if e.x() is not None and e.y() is not None:
                 self.xpos = np.append(self.xpos,e.x()-300)
                 self.ypos = np.append(self.ypos,-e.y()+300)
                 if fn:
@@ -224,22 +264,45 @@ class Canvas(QLabel):
             msg.setInformativeText('Designated point is outside the Machine!')
             msg.setWindowTitle("Error")
             msg.exec_()
-        elif  (e.y()  - 310 -  e.x() +  560 < 0):
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Error")
-            msg.setInformativeText('Designated point is outside of reach!!')
-            msg.setWindowTitle("Error")
-            msg.exec_()
-        elif  (e.y() -290  + e.x() -  560 > 0):
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Error")
-            msg.setInformativeText('Designated point is outside of reach!')
-            msg.setWindowTitle("Error")
-            msg.exec_()
+        if self.hand ==0:
+            if  (e.y()  - 310 -  e.x() +  560 < 0):
 
-        elif e.x() is not None and e.y() is not None:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+            elif  (e.y() -290  + e.x() -  560 > 0):
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+        if self.hand == 1:
+            if  (e.y()  - 310 + e.x() -40 < 0):
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+            elif  (e.y() -290  - e.x() +  40 > 0):
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText('Designated point is outside of reach!')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+
+        if e.x() is not None and e.y() is not None:
                 self.xpos = np.append(self.xpos,e.x()-300)
                 self.ypos = np.append(self.ypos,-e.y()+300)
                 if fn:
@@ -331,6 +394,70 @@ class Canvas(QLabel):
             self.update()
 
         self.reset_mode()
+        
+        
+    # barrier events
+
+    def barrier_mousePressEvent(self, e):
+        self.origin_pos = e.pos()
+        self.current_pos = e.pos()
+        self.preview_pen = PREVIEW_PEN
+        self.timer_event = self.barrier_timerEvent
+
+    def barrier_timerEvent(self, final=False):
+        p = QPainter(self.pixmap())
+        p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
+        pen = self.preview_pen
+        p.setPen(pen)
+        if self.last_pos:
+            p.drawLine(self.origin_pos, self.last_pos)
+
+        if not final:
+            p.drawLine(self.origin_pos, self.current_pos)
+
+        self.update()
+        self.last_pos = self.current_pos
+
+    def barrier_mouseMoveEvent(self, e):
+        self.current_pos = e.pos()
+
+    def barrier_mouseReleaseEvent(self, e):
+        if self.last_pos:
+            # Clear up indicator.
+            self.timer_cleanup()
+
+            p = QPainter(self.pixmap())
+            p.setPen(QPen(QColor('#800000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
+            p.drawLine(self.origin_pos, e.pos())
+            
+            p.setPen(QPen(QColor('#FF0000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+           
+            if self.hand == 1:
+                C = (-self.origin_pos.y() + 300)/(self.origin_pos.x() - 50)
+                xv = (100*C*C +600 + np.sqrt((100*C*C + 600)**2 - 4*(C*C+1)*(2500*C*C +90000-250**2)))/(2*(C*C+1))
+                yv = -300 + C*(xv-50)
+                p.drawLine(self.origin_pos, QPointF(xv,-yv))
+                
+                C = (-e.y() + 300)/(e.x() - 50)
+                xv = (100*C*C +600 + np.sqrt((100*C*C + 600)**2 - 4*(C*C+1)*(2500*C*C +90000-250**2)))/(2*(C*C+1))
+                yv = -300 + C*(xv-50)
+                p.drawLine(e.pos(), QPointF(xv,-yv))
+                
+            if self.hand ==0:
+                C = (-self.origin_pos.y() + 300)/(self.origin_pos.x() - 550)
+                xv = (1100*C*C +600 - np.sqrt((1100*C*C + 600)**2 - 4*(C*C+1)*(550*550*C*C +90000-250**2)))/(2*(C*C+1))
+                yv = -300 + C*(xv-550)
+                p.drawLine(self.origin_pos, QPointF(xv,-yv))
+                
+                C = (-e.y() + 300)/(e.x() - 550)
+                xv = (1100*C*C +600 - np.sqrt((1100*C*C + 600)**2 - 4*(C*C+1)*(550*550*C*C +90000-250**2)))/(2*(C*C+1))
+                yv = -300 + C*(xv-550)
+                p.drawLine(e.pos(), QPointF(xv,-yv))
+
+            self.update()
+            self.bar += 2
+        self.reset_mode()
 
     # Generic poly events
     def generic_poly_mousePressEvent(self, e):
@@ -416,9 +543,12 @@ class Canvas(QLabel):
     def resetpos(self,arg):
         self.xpos = []
         self.ypos = []
+        self.poslist = []
+        self.barlist =[]
+        self.bar = 0
         arg.saveButton.setEnabled(False)
 
-#####everything internal is handled in coordinate units.
+#####everything internal is handled in coordinate units. ###### EXCEPT THE BARLIST
 ###########means output list is also in coord units.
 ########## 1 cm = 5pixel.
 
@@ -426,14 +556,50 @@ class Canvas(QLabel):
         self.nx = 5*float(arg.xres.text())
         self.ny = 5*float(arg.yres.text())
         self.nz = 5*float(arg.zres.text())
-        self.z1 = float(arg.z1.text())
-        self.z2 = float(arg.z2.text())
+        self.z1 = 5*float(arg.z1.text())
+        self.z2 = 5*float(arg.z2.text())
 
-    def print_positions(self):
+    def print_positions(self,arg):
         # print(self.xpos)
         # print(self.ypos)
         # self.set_status()
         mode = self.mode
+        bar = self.bar
+        barlist = []
+        arg.saveButton.setEnabled(False)
+#apologies to anyone reading this code, but the transformations between one coord system and another are too irksome to document.        
+        for i in range(0,bar-1,2):
+            xe = self.xpos[i+1]
+            xorg = self.xpos[i]
+            ye = self.ypos[i+1]
+            yorg = self.ypos[i]
+            
+            if self.hand == 1:
+                C = (yorg)/(xorg + 250)
+                xvo = ( -(500*C*C) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yvo =   C*(xvo+250)
+
+                
+                C = ye/(xe +250)
+                xve = ( -(C*C*500) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yve =   C*(xve+250)
+
+                
+            if self.hand ==0:
+                C = (yorg)/(xorg - 250)
+                xvo = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yvo =   C*(xvo-250)
+
+                
+                C = (ye)/(xe - 250)
+                xve = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yve =   C*(xve-250) 
+                
+            barlist.append([(xorg,yorg,self.z1),(xe,ye,self.z1),(xvo,yvo,self.z1),(xve,yve,self.z1)])
+            barlist = np.array(barlist)/5
+            
+        self.barlist = barlist
+        
         if mode == "line":
             self.get_positionsline()
             # self.update_graph(self.poslist)
@@ -450,8 +616,10 @@ class Canvas(QLabel):
 
 
     def get_positionsrect(self):
+        bar = self.bar
         poslist = []
-        for i in range(0,len(self.xpos)-1,2):
+        
+        for i in range(bar,len(self.xpos)-1,2):
             xmax = self.xpos[i+1]
             xmin = self.xpos[i]
             ymax = self.ypos[i+1]
@@ -480,11 +648,13 @@ class Canvas(QLabel):
             poslist.extend(positions)
             # print(poslist)
             self.poslist = poslist
+            
 
 
 
     def get_positionsline(self):
             poslist = []
+            bar = self.bar
             xs = self.xpos
             ys = self.ypos
 
@@ -496,7 +666,7 @@ class Canvas(QLabel):
             ypos = [ys[0]]
 #            zpos = [zs[0]]
 
-            for i in range(0,len(xs)-1,2):
+            for i in range(bar,len(xs)-1,2):
 
         #general idea for motion list- user gave end points of line segments.
         #each point is essentially a location in the array. Get distance between the
@@ -545,6 +715,7 @@ class Canvas(QLabel):
 
     def get_positionspoly(self):
         poslist = []
+        bar = self.bar
         xs = np.delete(self.xpos,-1)
         ys = np.delete(self.ypos,-1)
 
@@ -553,7 +724,7 @@ class Canvas(QLabel):
         xpos = [xs[0]]
         ypos = [ys[0]]
 
-        for i in range(0,len(xs)-1):
+        for i in range(bar,len(xs)-1):
                     xposi = xs[i]
                     xposi2 = xs[i+1]
 
@@ -592,11 +763,14 @@ class Canvas(QLabel):
 
     def checklist(self,arg):
         # self.set_status()
-        xs = [x[0]+300 for x in self.poslist]
-        ys = [-x[1]+300 for x in self.poslist]
+        xs = [x[0] for x in self.poslist]
+        ys = [x[1] for x in self.poslist]
+       
+        barlist = self.barlist*5
 
         for i in range(0,len(xs)):
-            dist = ((xs[i] - 300)**2 + (ys[i]-300)**2)**0.5
+            dist = ((xs[i])**2 + (ys[i])**2)**0.5
+            
             if (dist > 250):
                 arg.saveButton.setEnabled(False)
 
@@ -606,31 +780,169 @@ class Canvas(QLabel):
                 msg.setInformativeText('Some designated points are outside of the machine!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
-                break
+                return
+        
 
-            elif  (ys[i]  - 310 -  xs[i] +  560 < 0):
-                arg.saveButton.setEnabled(False)
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Critical)
-                msg.setText("Error")
-                msg.setInformativeText('Some designated points are outside of reach!!')
-                msg.setWindowTitle("Error")
-                msg.exec_()
-                break
-            elif  (ys[i] -290  + xs[i] - 560 > 0):
-                arg.saveButton.setEnabled(False)
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Critical)
-                msg.setText("Error")
-                msg.setInformativeText('Some designated points are outside of reach!')
-                msg.setWindowTitle("Error")
-                msg.exec_()
-                break
-            else:
-                arg.saveButton.setEnabled(True)
+            if self.hand == 0:
+                if  (ys[i]  - 0 -  (xs[i] -250) < 0):
+                    arg.saveButton.setEnabled(False)
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Critical)
+                    msg.setText("Error")
+                    msg.setInformativeText('Some designated points are outside of reach!!')
+                    msg.setWindowTitle("Error")
+                    msg.exec_()
+                    return
+                elif  (ys[i] -0  + (xs[i] -250) > 0):
+                    arg.saveButton.setEnabled(False)
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Critical)
+                    msg.setText("Error")
+                    msg.setInformativeText('Some designated points are outside of reach!')
+                    msg.setWindowTitle("Error")
+                    msg.exec_()
+                    return
+                
+                for posgroup in barlist:  #posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
+                    if posgroup[0][0]-posgroup[1][0] ==0:
+                        m1 = 1
+                    else:
+                        m1 = (posgroup[0][1]-posgroup[1][1])/(posgroup[0][0]-posgroup[1][0])
+                    m2 = (posgroup[0][1]- posgroup[2][1])/(posgroup[0][0]-posgroup[2][0])
+                    m3 = (posgroup[1][1]- posgroup[3][1])/(posgroup[1][0]-posgroup[3][0])
+         
+                    if (
+                        ( (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]> 0 and m1> 0) or (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]< 0 and m1< 0)) 
+                    
+                    and (
+                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]< 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]> 0) and (posgroup[0][1]>posgroup[1][1]))
+                        or
+                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]> 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]< 0) and (posgroup[0][1]<posgroup[1][1]))
+                        ) 
+                    
+                   
+                    
+                    ):
+                            arg.saveButton.setEnabled(False)
+                            msg = QMessageBox()
+                            msg.setIcon(QMessageBox.Critical)
+                            msg.setText("Error")
+                            msg.setInformativeText('Some designated points are in No-go zone!!')
+                            msg.setWindowTitle("Error")
+                            msg.exec_()
+                            return
+                        
+                
+            if self.hand == 1:
+                
+                if  (ys[i]  - 0 + (xs[i] +250) < 0):
+                    arg.saveButton.setEnabled(False)
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Critical)
+                    msg.setText("Error")
+                    msg.setInformativeText('Designated point is outside of reach!!')
+                    msg.setWindowTitle("Error")
+                    msg.exec_()
+                    return
+               
+                elif  (ys[i] - 0  - (xs[i] +250) > 0):
+                    
+                    arg.saveButton.setEnabled(False)
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Critical)
+                    msg.setText("Error")
+                    msg.setInformativeText('Designated point is outside of reach!')
+                    msg.setWindowTitle("Error")
+                    msg.exec_()
+                    return
+                
+                for posgroup in barlist:  #posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
+                    if posgroup[0][0]-posgroup[1][0] ==0:
+                        m1 = 1
+                    else:
+                        m1 = (posgroup[0][1]-posgroup[1][1])/(posgroup[0][0]-posgroup[1][0])
+                    m2 = (posgroup[0][1]- posgroup[2][1])/(posgroup[0][0]-posgroup[2][0])
+                    m3 = (posgroup[1][1]- posgroup[3][1])/(posgroup[1][0]-posgroup[3][0])
+         
+                    if (
+                        ( (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]> 0 and m1< 0) or (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]< 0 and m1> 0)) 
+                    
+                    and (
+                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]< 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]> 0) and (posgroup[0][1]>posgroup[1][1]))
+                        or
+                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]> 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]< 0) and (posgroup[0][1]<posgroup[1][1]))
+                        ) 
+                    
+                   
+                    
+                    ):
+                            arg.saveButton.setEnabled(False)
+                            msg = QMessageBox()
+                            msg.setIcon(QMessageBox.Critical)
+                            msg.setText("Error")
+                            msg.setInformativeText('Some designated points are in No-go zone!!')
+                            msg.setWindowTitle("Error")
+                            msg.exec_()
+                            return
+        
+        arg.saveButton.setEnabled(True)
 
     def coordEnter(self,arg):
+        bar = arg.barcoord.text()
+        barlist = []
+        p = QPainter(self.pixmap())
 
+        if bar[0] == '(':
+            bar = np.array(bar.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+            xs = [5*x[0] for x in bar]
+            ys = [5*x[1] for x in bar]
+            zs = [5*x[2] for x in bar]
+            p.setPen(QPen(QColor(Qt.red), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setBrush(QBrush(QColor(Qt.red)))
+
+                
+            for i in range(0,len(xs)-1,2):
+                xe = xs[i+1]
+                xorg = xs[i]
+                ye = ys[i+1]
+                yorg = ys[i]
+                
+                if self.hand == 1:
+                    C = (yorg)/(xorg + 250)
+                    xvo = ( -(500*C*C) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yvo =   C*(xvo+250)
+
+                    
+                    C = ye/(xe +250)
+                    xve = ( -(C*C*500) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yve =   C*(xve+250)
+                    
+                    
+                    
+                if self.hand ==0:
+                    C = (yorg)/(xorg - 250)
+                    xvo = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yvo =   C*(xvo-250)
+
+                    
+                    C = (ye)/(xe - 250)
+                    xve = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yve =   C*(xve-250) 
+                    
+                p.drawLine(QPointF(xorg+300,-yorg+300),QPointF(xvo+300,-yvo+300))
+                p.drawLine(QPointF(xe+300,-ye+300),QPointF(xve+300,-yve+300))
+              
+                p.setPen(QPen(QColor('#800000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                p.drawLine(QPointF(xorg+300,-yorg+300),QPointF(xe+300,-ye+300)) 
+
+                barlist.append([(xorg,yorg,self.z1),(xe,ye,self.z1),(xvo,yvo,self.z1),(xve,yve,self.z1)])
+            
+                barlist = np.array(barlist)/5
+            self.barlist = barlist
+            
+
+            
+            
         if self.mode == 'polyline':
             res = min(self.nx , self.ny , self.nz)
             str1 = arg.ps.text()
@@ -644,7 +956,6 @@ class Canvas(QLabel):
                 xpos = [xs[0]]
                 ypos = [ys[0]]
                 zpos = [zs[0]]
-                p = QPainter(self.pixmap())
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
@@ -700,7 +1011,6 @@ class Canvas(QLabel):
                 ypos = [ys[0]]
                 zpos = [zs[0]]
 
-                p = QPainter(self.pixmap())
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
@@ -754,7 +1064,6 @@ class Canvas(QLabel):
                 self.xpos = xs
                 self.ypos = ys
 
-                p = QPainter(self.pixmap())
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
                 for i in range(0,len(xs)-1,2):
@@ -791,7 +1100,7 @@ class Canvas(QLabel):
                     poslist.extend(positions)
                     # print(poslist)
                     self.poslist = poslist
-
+                    
 
 
             except ValueError:
@@ -842,12 +1151,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             btn.pressed.connect(lambda mode=mode: self.canvas.set_mode(mode))
             mode_group.addButton(btn)
 
-        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny)])
-        self.clearButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self)])
+        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
+        self.clearButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
         self.saveButton.clicked.connect(lambda: self.canvas.save_file())
         self.verifyButton.clicked.connect(lambda: self.canvas.checklist(self))
-        self.EntButton.clicked.connect(lambda: [self.canvas.resetpos(self), self.canvas.coordEnter(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny)])
-
+        self.EntButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self), self.canvas.coordEnter(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
+        self.hand.clicked.connect(lambda: [self.canvas.set_hand() ,self.canvas.resetpos(self)])
 
         # Initialize animation timer.
         self.timer = QTimer()
@@ -861,7 +1170,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.z1.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.z2.editingFinished.connect(lambda: self.canvas.set_status(self))
-        self.canvas.move.connect(lambda: self.updateCoord(self.canvas.cx,self.canvas.cy))
+        self.canvas.move.connect(lambda: self.updateCoord(self.canvas.cx,self.canvas.cy,self.canvas.poslist,self.canvas.bar))
 
 
 
@@ -872,28 +1181,41 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.show()
 
-    def update_graph(self,poslist,nx,ny):
+    def update_graph(self,poslist,nx,ny,barlist):
 
 
             self.horizontalLayout_3.removeWidget(self.canvas2)
 
             self.canvas2 = MplCanvas()
-            self.canvas2.ax.set_xlim3d(-300,300)
-            self.canvas2.ax.set_ylim3d(-300,300)
-            self.canvas2.ax.set_zlim3d(-300,300)
+            self.canvas2.ax.set_xlim3d(-100,100)
+            self.canvas2.ax.set_ylim3d(-100,100)
+            self.canvas2.ax.set_zlim3d(-5,5)
 
-            xs = [x[0] for x in poslist]
-            ys = [x[1] for x in poslist]
-            zs = [x[2] for x in poslist]
-            size = 0.5*min([nx,ny])
+            xs = [x[0]/5 for x in poslist]
+            ys = [x[1]/5 for x in poslist]
+            zs = [x[2]/5 for x in poslist]
+            size = min([nx/5,ny/5])
 
 
             self.canvas2.ax.scatter(xs,ys,zs,s = size)
+                
+            for posgroup in barlist:
+#posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
 
+                self.canvas2.ax.plot( [posgroup[0][0],posgroup[1][0]],
+                                     [posgroup[0][1],posgroup[1][1]], color = '#800000'
+                                     )
+                self.canvas2.ax.plot([posgroup[0][0],posgroup[2][0]],
+                                     [posgroup[0][1],posgroup[2][1]], color = 'red'
+                                     )
+                self.canvas2.ax.plot([posgroup[1][0],posgroup[3][0]],
+                                     [posgroup[1][1],posgroup[3][1]], color = 'red'
+                                     )
             self.horizontalLayout_3.addWidget(self.canvas2)
 
-    def updateCoord(self,x,y):
+    def updateCoord(self,x,y,poslist,bar):
         self.label_Coord.setText('Mouse coords: ( %d , %d )' % ((x-300)/5,(-y+300)/5))
+        self.label_points.setText(str(len(poslist)))
 
 
 
@@ -911,5 +1233,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 if __name__ == '__main__':
 
     app = QApplication([])
+    app.setQuitOnLastWindowClosed(True)
     window = MainWindow()
     app.exec_()
