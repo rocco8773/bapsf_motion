@@ -596,8 +596,8 @@ class Canvas(QLabel):
                 yve =   C*(xve-250) 
                 
             barlist.append([(xorg,yorg,self.z1),(xe,ye,self.z1),(xvo,yvo,self.z1),(xve,yve,self.z1)])
-            barlist = np.array(barlist)/5
             
+        barlist = np.array(barlist)/5   
         self.barlist = barlist
         
         if mode == "line":
