@@ -127,6 +127,11 @@ class Ui_MainWindow(object):
         self.circleButton.setCheckable(True)
         self.verticalLayout_2.addWidget(self.circleButton)
         
+        self.ellipseButton = QtWidgets.QPushButton(self.Box1)
+        self.ellipseButton.setObjectName("ellipseButton")
+        self.ellipseButton.setCheckable(True)
+        self.verticalLayout_2.addWidget(self.ellipseButton)
+        
         self.printButton = QtWidgets.QPushButton(self.Box1)
         self.printButton.setObjectName("printButton")
         self.verticalLayout_2.addWidget(self.printButton)
@@ -268,6 +273,10 @@ class Ui_MainWindow(object):
         
         self.circleButton.setText(_translate("MainWindow", "Circle"))
         self.circleButton.setToolTip(_translate("MainWindow", "Click and Drag to define a circular area"))
+        
+        self.ellipseButton.setText(_translate("MainWindow", "Ellipse"))
+        self.ellipseButton.setToolTip(_translate("MainWindow", "Click and Drag to define a rectangle in which the ellipse will be inscribed."))
+
 
         self.polylineButton.setText(_translate("MainWindow", "Polygon"))
         self.polylineButton.setToolTip(_translate("MainWindow", "Click and Drag to define line path. Click again to start second line. Double click to end."))

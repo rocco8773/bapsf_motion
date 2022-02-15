@@ -24,7 +24,7 @@ from MainWindow import Ui_MainWindow
 MODES = [
 
     'line', 'polyline',
-    'rect', 'barrier', 'circle'
+    'rect', 'barrier', 'circle','ellipse'
 ]
 
 
@@ -613,6 +613,47 @@ class Canvas(QLabel):
 
         self.reset_mode()
 
+#Ellipse events
+    def ellipse_mousePressEvent(self, e):
+        self.active_shape_fn = 'drawEllipse'
+        self.active_shape_args = ()
+        self.origin_pos = e.pos()
+        self.preview_pen = PREVIEW_PEN
+        self.current_pos = e.pos()
+        self.timer_event = self.ellipse_timerEvent
+
+    def ellipse_timerEvent(self, final=False):
+        p = QPainter(self.pixmap())
+        p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
+        pen = self.preview_pen
+        p.setPen(pen)
+        if self.last_pos:
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
+
+        if not final:
+            p.setPen(pen)
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
+
+        self.update()
+        self.last_pos = self.current_pos
+
+    def ellipse_mouseMoveEvent(self, e):
+        self.current_pos = e.pos()
+
+    def ellipse_mouseReleaseEvent(self, e):
+        if self.last_pos:
+            # Clear up indicator.
+            self.timer_cleanup()
+
+            p = QPainter(self.pixmap())
+            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+
+            if self.config['fill']:
+                p.setBrush(QBrush(self.primary_color))
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
+            self.update()
+
+        self.reset_mode()
 
 
 
@@ -698,6 +739,8 @@ class Canvas(QLabel):
         elif mode == 'circle':
             self.get_positionscircle()
 
+        elif mode == 'ellipse':
+            self.get_positionsellipse()
 
 
 
@@ -887,6 +930,65 @@ class Canvas(QLabel):
                     for z in thetavals:
                         xval = xposi + t*r*np.cos(z)
                         yval = yposi + t*r*np.sin(z)
+
+                        xpos = np.append(xpos,xval)
+                        ypos = np.append(ypos,yval)
+
+
+            for z in range(0,len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos,ypos,zpos))
+                poslist = poslist + positions
+
+
+
+
+            self.poslist = poslist
+            
+            
+            
+    def get_positionsellipse(self):
+        
+            poslist = []
+            bar = self.bar
+            xs = self.xpos
+            ys = self.ypos
+
+            nz = self.nz
+
+            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+            zvals = np.linspace(self.z1,self.z2,linvalz+1)
+            xpos = [xs[0]]
+            ypos = [ys[0]]
+#            zpos = [zs[0]]
+
+            for i in range(bar,len(xs)-1,2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+                
+                a = np.abs(xposi2 - xposi)
+                b = np.abs(yposi2-yposi)
+                cx = (xposi + xposi2)/2
+                cy = (yposi + yposi2)/2
+                # zposi = zs[i]
+                # zposi2 =zs[i+1]
+                dr = self.nx
+                dtheta = self.ny
+                
+                linval = math.floor((min([a,b]))/(dr))
+                
+                thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
+                parvals = np.linspace(0,1,linval+1)
+
+                for t in parvals[1:]: #first start point already initialized in array.
+            ##Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals:
+                        xval = cx + t*a*np.cos(z)
+                        yval = cy + t*b*np.sin(z)
 
                         xpos = np.append(xpos,xval)
                         ypos = np.append(ypos,yval)
@@ -1210,6 +1312,9 @@ class Canvas(QLabel):
                 self.xpos = xs
                 self.ypos = ys
                 self.zpos = zs
+                nx = self.nx
+                ny = self.ny
+                nz = self.nz
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
                 for i in range(0,len(xs)-1,2):
@@ -1223,9 +1328,7 @@ class Canvas(QLabel):
                     ymin = self.ypos[i]
                     zmax = zs[i+1]
                     zmin = zs[i]
-                    nx = self.nx
-                    ny = self.ny
-                    nz = self.nz
+
 
                     linvalz = abs(math.floor((zmax-zmin)/(nz)))
 
@@ -1266,6 +1369,9 @@ class Canvas(QLabel):
                     self.xpos = xs
                     self.ypos = ys
                     self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny
+                    nz = self.nz
                     p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     p.setBrush(QBrush(QColor(Qt.black)))
 
@@ -1286,7 +1392,8 @@ class Canvas(QLabel):
                         
                         zmax = zs[i+1]
                         zmin = zs[i]
-                    
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
                         zvals = np.linspace(zmin,zmax,linvalz+1)
                         r = np.sqrt( (xposi -xposi2)**2 + (yposi-yposi2)**2   )
                         # zposi = zs[i]
@@ -1321,6 +1428,84 @@ class Canvas(QLabel):
 
                 except ValueError:
                  QMessageBox.about(self, "Error", "Position should be valid numbers.")
+
+        elif self.mode == 'ellipse':
+                poslist = []
+                bar = self.bar
+                
+                str1 = arg.ps.text()
+                #split the string by , in order to get an array
+                str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny
+                    nz = self.nz
+                    p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    
+                    poslist = []
+                    xpos = [xs[0]]
+                    ypos = [ys[0]]
+                    
+
+
+                    for i in range(0,len(self.xpos)-1,2):
+
+                        xposi = xs[i]
+                        xposi2 = xs[i+1]
+                        
+                        yposi = ys[i]
+                        yposi2 = ys[i+1]
+                        
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                        zvals = np.linspace(zmin,zmax,linvalz+1)
+                        a = np.abs(xposi2-xposi)
+                        b = np.abs(yposi2-yposi)
+                        # zposi = zs[i]
+                        # zposi2 =zs[i+1]
+
+                        cx = (xposi + xposi2)/2
+                        cy = (yposi + yposi2)/2
+                        
+                        p.drawEllipse( QRect(  QPoint(xposi+300,-yposi+300), QPoint(xposi2+300,-yposi2+300) ))
+                        linval = math.floor((min([a,b]))/(dr))
+                        
+                        thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
+                        parvals = np.linspace(0,1,linval+1)
+                        
+                        for t in parvals[1:]: 
+                            for z in thetavals:
+                                xval = cx + t*a*np.cos(z)
+                                yval = cy + t*b*np.sin(z)
+
+                                xpos = np.append(xpos,xval)
+                                ypos = np.append(ypos,yval)
+
+
+                    for z in range(0,len(zvals)):
+                        zpos = z*np.ones(len(xpos))
+                        positions = list(zip(xpos,ypos,zpos))
+                        poslist = poslist + positions
+
+
+
+
+                    self.poslist = poslist
+
+                except ValueError:
+                 QMessageBox.about(self, "Error", "Position should be valid numbers.")
+
 
 
     def save_file(self):
