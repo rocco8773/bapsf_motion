@@ -15,7 +15,7 @@ import numpy as np
 import math
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.mplot3d import Axes3D
-
+import toml
 from matplotlib.figure import Figure
 # from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from MainWindow import Ui_MainWindow
@@ -24,7 +24,7 @@ from MainWindow import Ui_MainWindow
 MODES = [
 
     'line', 'polyline',
-    'rect', 'barrier'
+    'rect', 'barrier', 'circle'
 ]
 
 
@@ -319,43 +319,43 @@ class Canvas(QLabel):
     # Mode-specific events.
 
 
-    def generic_shape_mousePressEvent(self, e):
-        self.origin_pos = e.pos()
-        self.current_pos = e.pos()
-        self.timer_event = self.generic_shape_timerEvent
+    # def generic_shape_mousePressEvent(self, e):
+    #     self.origin_pos = e.pos()
+    #     self.current_pos = e.pos()
+    #     self.timer_event = self.generic_shape_timerEvent
 
-    def generic_shape_timerEvent(self, final=False):
-        p = QPainter(self.pixmap())
-        p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
-        pen = self.preview_pen
-        p.setPen(pen)
-        if self.last_pos:
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
+    # def generic_shape_timerEvent(self, final=False):
+    #     p = QPainter(self.pixmap())
+    #     p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
+    #     pen = self.preview_pen
+    #     p.setPen(pen)
+    #     if self.last_pos:
+    #         getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
 
-        if not final:
-            p.setPen(pen)
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
+    #     if not final:
+    #         p.setPen(pen)
+    #         getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
 
-        self.update()
-        self.last_pos = self.current_pos
+    #     self.update()
+    #     self.last_pos = self.current_pos
 
-    def generic_shape_mouseMoveEvent(self, e):
-        self.current_pos = e.pos()
+    # def generic_shape_mouseMoveEvent(self, e):
+    #     self.current_pos = e.pos()
 
-    def generic_shape_mouseReleaseEvent(self, e):
-        if self.last_pos:
-            # Clear up indicator.
-            self.timer_cleanup()
+    # def generic_shape_mouseReleaseEvent(self, e):
+    #     if self.last_pos:
+    #         # Clear up indicator.
+    #         self.timer_cleanup()
 
-            p = QPainter(self.pixmap())
-            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+    #         p = QPainter(self.pixmap())
+    #         p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
 
-            if self.config['fill']:
-                p.setBrush(QBrush(self.primary_color))
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
-            self.update()
+    #         if self.config['fill']:
+    #             p.setBrush(QBrush(self.primary_color))
+    #         getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
+    #         self.update()
 
-        self.reset_mode()
+    #     self.reset_mode()
 
     # Line events
 
@@ -525,16 +525,97 @@ class Canvas(QLabel):
         self.active_shape_fn = 'drawRect'
         self.active_shape_args = ()
         self.preview_pen = PREVIEW_PEN
-        self.generic_shape_mousePressEvent(e)
+        self.origin_pos = e.pos()
+        self.current_pos = e.pos()
+        self.timer_event = self.rect_timerEvent
+
 
     def rect_timerEvent(self, final=False):
-        self.generic_shape_timerEvent(final)
+        p = QPainter(self.pixmap())
+        p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
+        pen = self.preview_pen
+        p.setPen(pen)
+        if self.last_pos:
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
+
+        if not final:
+            p.setPen(pen)
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
+
+        self.update()
+        self.last_pos = self.current_pos
 
     def rect_mouseMoveEvent(self, e):
-        self.generic_shape_mouseMoveEvent(e)
+        self.current_pos = e.pos()
 
     def rect_mouseReleaseEvent(self, e):
-        self.generic_shape_mouseReleaseEvent(e)
+        if self.last_pos:
+            # Clear up indicator.
+            self.timer_cleanup()
+
+            p = QPainter(self.pixmap())
+            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+
+            if self.config['fill']:
+                p.setBrush(QBrush(self.primary_color))
+            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
+            self.update()
+
+        self.reset_mode()
+
+        
+        
+
+    # Circle events
+
+    def circle_mousePressEvent(self, e):
+        self.active_shape_fn = 'drawEllipse'
+        self.active_shape_args = ()
+        self.preview_pen = PREVIEW_PEN
+        self.origin_pos = e.pos()
+        self.current_pos = e.pos()
+        self.timer_event = self.circle_timerEvent
+
+    def circle_timerEvent(self, final=False):
+        p = QPainter(self.pixmap())
+        p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
+        pen = self.preview_pen
+        p.setPen(pen)
+        if self.last_pos:
+            r = np.sqrt( ( self.origin_pos.x() - self.last_pos.x() )**2 + ( self.origin_pos.y() - self.last_pos.y() )**2  )
+
+            getattr(p, self.active_shape_fn)( self.origin_pos,r,r, *self.active_shape_args)
+
+        if not final:
+            p.setPen(pen)
+            r = np.sqrt( ( self.origin_pos.x() - self.current_pos.x() )**2 + ( self.origin_pos.y() - self.current_pos.y() )**2  )
+            getattr(p, self.active_shape_fn)( self.origin_pos,r,r, *self.active_shape_args)
+
+        self.update()
+        self.last_pos = self.current_pos
+
+    def circle_mouseMoveEvent(self, e):
+        self.current_pos = e.pos()
+
+    def circle_mouseReleaseEvent(self, e):
+        if self.last_pos:
+            # Clear up indicator.
+            self.timer_cleanup()
+            r = np.sqrt( ( self.origin_pos.x() - self.last_pos.x() )**2 + ( self.origin_pos.y() - self.last_pos.y() )**2  )
+
+            p = QPainter(self.pixmap())
+            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+
+            if self.config['fill']:
+                p.setBrush(QBrush(self.primary_color))
+            getattr(p, self.active_shape_fn)(self.origin_pos,r,r, *self.active_shape_args)
+            self.update()
+
+        self.reset_mode()
+
+
+
+
 
 
 
@@ -558,6 +639,7 @@ class Canvas(QLabel):
         self.nz = 5*float(arg.zres.text())
         self.z1 = 5*float(arg.z1.text())
         self.z2 = 5*float(arg.z2.text())
+        
 
     def print_positions(self,arg):
         # print(self.xpos)
@@ -565,6 +647,7 @@ class Canvas(QLabel):
         # self.set_status()
         mode = self.mode
         bar = self.bar
+        self.zpos = [self.z1,self.z2]
         barlist = []
         arg.saveButton.setEnabled(False)
 #apologies to anyone reading this code, but the transformations between one coord system and another are too irksome to document.        
@@ -611,6 +694,9 @@ class Canvas(QLabel):
         elif mode == "polyline":
             self.get_positionspoly()
             # self.update_graph(self.poslist)
+            
+        elif mode == 'circle':
+            self.get_positionscircle()
 
 
 
@@ -760,7 +846,62 @@ class Canvas(QLabel):
 
 
         self.poslist = poslist
+        
+        
+    def get_positionscircle(self):
+        
+            poslist = []
+            bar = self.bar
+            xs = self.xpos
+            ys = self.ypos
 
+            nz = self.nz
+
+            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+            zvals = np.linspace(self.z1,self.z2,linvalz+1)
+            xpos = [xs[0]]
+            ypos = [ys[0]]
+#            zpos = [zs[0]]
+
+            for i in range(bar,len(xs)-1,2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+                
+                r = np.sqrt( (xposi -xposi2)**2 + (yposi-yposi2)**2   )
+                # zposi = zs[i]
+                # zposi2 =zs[i+1]
+                dr = self.nx
+                dtheta = self.ny
+                
+                linval = math.floor(r/(dr))
+                
+                thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
+                parvals = np.linspace(0,1,linval+1)
+
+                for t in parvals[1:]: #first start point already initialized in array.
+            ##Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals:
+                        xval = xposi + t*r*np.cos(z)
+                        yval = yposi + t*r*np.sin(z)
+
+                        xpos = np.append(xpos,xval)
+                        ypos = np.append(ypos,yval)
+
+
+            for z in range(0,len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos,ypos,zpos))
+                poslist = poslist + positions
+
+
+
+
+            self.poslist = poslist
+        
     def checklist(self,arg):
         # self.set_status()
         xs = [x[0] for x in self.poslist]
@@ -956,6 +1097,9 @@ class Canvas(QLabel):
                 xpos = [xs[0]]
                 ypos = [ys[0]]
                 zpos = [zs[0]]
+                self.xpos = xs
+                self.ypos = ys
+                self.zpos = zs
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
@@ -1010,7 +1154,9 @@ class Canvas(QLabel):
                 xpos = [xs[0]]
                 ypos = [ys[0]]
                 zpos = [zs[0]]
-
+                self.xpos = xs
+                self.ypos = ys
+                self.zpos = zs
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
@@ -1052,7 +1198,7 @@ class Canvas(QLabel):
 
         elif self.mode == 'rect':
 
-            res = min(self.nx , self.ny , self.nz)
+            # res = min(self.nx , self.ny , self.nz)
             str1 = arg.ps.text()
             #split the string by , in order to get an array
             str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
@@ -1063,7 +1209,7 @@ class Canvas(QLabel):
                 zs = [5*x[2] for x in str1]
                 self.xpos = xs
                 self.ypos = ys
-
+                self.zpos = zs
                 p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
                 for i in range(0,len(xs)-1,2):
@@ -1101,12 +1247,80 @@ class Canvas(QLabel):
                     # print(poslist)
                     self.poslist = poslist
                     
-
-
             except ValueError:
                 QMessageBox.about(self, "Error", "Position should be valid numbers.")
 
+                    
+        elif self.mode == 'circle':
+                poslist = []
+                bar = self.bar
+                
+                str1 = arg.ps.text()
+                #split the string by , in order to get an array
+                str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+                try:
 
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    
+                    poslist = []
+                    xpos = [xs[0]]
+                    ypos = [ys[0]]
+                    
+
+
+                    for i in range(0,len(self.xpos)-1,2):
+
+                        xposi = xs[i]
+                        xposi2 = xs[i+1]
+                        
+                        yposi = ys[i]
+                        yposi2 = ys[i+1]
+                        
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+                    
+                        zvals = np.linspace(zmin,zmax,linvalz+1)
+                        r = np.sqrt( (xposi -xposi2)**2 + (yposi-yposi2)**2   )
+                        # zposi = zs[i]
+                        # zposi2 =zs[i+1]
+                        dr = self.nx
+                        dtheta = self.ny
+                        
+                        p.drawEllipse( QPointF(xs[i]+300,-ys[i]+300),r,r)
+                        linval = math.floor(r/(dr))
+                        
+                        thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
+                        parvals = np.linspace(0,1,linval+1)
+                        
+                        for t in parvals[1:]: 
+                            for z in thetavals:
+                                xval = xposi + t*r*np.cos(z)
+                                yval = yposi + t*r*np.sin(z)
+
+                                xpos = np.append(xpos,xval)
+                                ypos = np.append(ypos,yval)
+
+
+                    for z in range(0,len(zvals)):
+                        zpos = z*np.ones(len(xpos))
+                        positions = list(zip(xpos,ypos,zpos))
+                        poslist = poslist + positions
+
+
+
+
+                    self.poslist = poslist
+
+                except ValueError:
+                 QMessageBox.about(self, "Error", "Position should be valid numbers.")
 
 
     def save_file(self):
@@ -1118,6 +1332,13 @@ class Canvas(QLabel):
 
         with open("res.txt", 'w') as file:
             file.write(str(self.nx/5)+ ' '+ str(self.ny/5)+' '+ str(self.nz/5))
+           
+        Dict = {'mode': self.mode , 'xres': self.nx, 'yres': self.ny , 'zres': self.nz,  'xs': self.xpos, 'ys': self.ypos, 'zs': self.zpos, 'bar': self.barlist , hand: self.hand}
+        toml_string = toml.dumps(Dict)  # Output to a string
+
+        output_file_name = "output.toml"
+        with open(output_file_name, "w") as toml_file:
+            toml.dump(Dict, toml_file)
 
 class MainWindow(QMainWindow, Ui_MainWindow):
 
@@ -1151,11 +1372,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             btn.pressed.connect(lambda mode=mode: self.canvas.set_mode(mode))
             mode_group.addButton(btn)
 
-        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
-        self.clearButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
+        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
+        self.clearButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
         self.saveButton.clicked.connect(lambda: self.canvas.save_file())
         self.verifyButton.clicked.connect(lambda: self.canvas.checklist(self))
-        self.EntButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self), self.canvas.coordEnter(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist)])
+        self.EntButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self), self.canvas.coordEnter(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
         self.hand.clicked.connect(lambda: [self.canvas.set_hand() ,self.canvas.resetpos(self)])
 
         # Initialize animation timer.
@@ -1181,7 +1402,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.show()
 
-    def update_graph(self,poslist,nx,ny,barlist):
+    def update_graph(self,poslist,nx,ny,barlist,arg):
 
 
             self.horizontalLayout_3.removeWidget(self.canvas2)
@@ -1194,7 +1415,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             xs = [x[0]/5 for x in poslist]
             ys = [x[1]/5 for x in poslist]
             zs = [x[2]/5 for x in poslist]
-            size = min([nx/5,ny/5])
+            if arg == 'circle':
+                size = nx/10
+            else:
+                size = min([nx/5,ny/5])
 
 
             self.canvas2.ax.scatter(xs,ys,zs,s = size)

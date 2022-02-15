@@ -122,7 +122,10 @@ class Ui_MainWindow(object):
         self.polylineButton.setCheckable(True)
         self.verticalLayout_2.addWidget(self.polylineButton)
         
-
+        self.circleButton = QtWidgets.QPushButton(self.Box1)
+        self.circleButton.setObjectName("circleButton")
+        self.circleButton.setCheckable(True)
+        self.verticalLayout_2.addWidget(self.circleButton)
         
         self.printButton = QtWidgets.QPushButton(self.Box1)
         self.printButton.setObjectName("printButton")
@@ -237,8 +240,8 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Motion List Generator"))
         self.Box2.setTitle(_translate("MainWindow", ""))
-        self.label.setText(_translate("MainWindow", "x-resolution (cm)"))
-        self.label_2.setText(_translate("MainWindow", "y-resolution (cm)"))
+        self.label.setText(_translate("MainWindow", "dx (or dr) (cm)"))
+        self.label_2.setText(_translate("MainWindow", "dy (or dθ) (cm)"))
         self.label_3.setText(_translate("MainWindow", "z-range:"))
         self.label_4.setText(_translate("MainWindow", "to"))
         self.label_5.setText(_translate("MainWindow", "z-resolution (cm)"))
@@ -262,6 +265,9 @@ class Ui_MainWindow(object):
         
         self.rectButton.setText(_translate("MainWindow", "Rectangle"))
         self.rectButton.setToolTip(_translate("MainWindow", "Click and Drag to define a rectangular area"))
+        
+        self.circleButton.setText(_translate("MainWindow", "Circle"))
+        self.circleButton.setToolTip(_translate("MainWindow", "Click and Drag to define a circular area"))
 
         self.polylineButton.setText(_translate("MainWindow", "Polygon"))
         self.polylineButton.setToolTip(_translate("MainWindow", "Click and Drag to define line path. Click again to start second line. Double click to end."))
