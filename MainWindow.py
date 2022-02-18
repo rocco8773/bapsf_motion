@@ -103,6 +103,7 @@ class Ui_MainWindow(object):
         self.barrierButton = QtWidgets.QPushButton(self.Box1)
         self.barrierButton.setObjectName("barrierButton")
         self.barrierButton.setCheckable(True)
+        self.barrierButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.barrierButton)
         
         
@@ -110,43 +111,88 @@ class Ui_MainWindow(object):
         self.lineButton = QtWidgets.QPushButton(self.Box1)
         self.lineButton.setObjectName("lineButton")
         self.lineButton.setCheckable(True)
+        self.lineButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.lineButton)
         
         self.rectButton = QtWidgets.QPushButton(self.Box1)
         self.rectButton.setObjectName("rectButton")
         self.rectButton.setCheckable(True)
+        self.rectButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.rectButton)
         
         self.polylineButton = QtWidgets.QPushButton(self.Box1)
         self.polylineButton.setObjectName("polylineButton")
         self.polylineButton.setCheckable(True)
+        self.polylineButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.polylineButton)
         
         self.circleButton = QtWidgets.QPushButton(self.Box1)
         self.circleButton.setObjectName("circleButton")
         self.circleButton.setCheckable(True)
+        self.circleButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.circleButton)
         
         self.ellipseButton = QtWidgets.QPushButton(self.Box1)
         self.ellipseButton.setObjectName("ellipseButton")
         self.ellipseButton.setCheckable(True)
+        self.ellipseButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.ellipseButton)
         
         self.printButton = QtWidgets.QPushButton(self.Box1)
         self.printButton.setObjectName("printButton")
+        self.printButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.printButton)
+        
         self.clearButton = QtWidgets.QPushButton(self.Box1)
         self.clearButton.setObjectName("clearButton")
+        self.clearButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.clearButton)
+        
         self.verifyButton = QtWidgets.QPushButton(self.Box1)
         self.verifyButton.setObjectName("verifyButton")
+        self.verifyButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.verifyButton)
+        
         self.saveButton = QtWidgets.QPushButton(self.Box1)
         self.saveButton.setEnabled(False)
         self.saveButton.setObjectName("saveButton")
+        self.saveButton.setMaximumWidth(150)
         self.verticalLayout_2.addWidget(self.saveButton)
         
+        self.GridBox = QtWidgets.QGroupBox(self.layoutWidget)
+        self.GridBox.setObjectName("GridBox")
+        self.verticalLayout_4 = QtWidgets.QVBoxLayout(self.GridBox)
+        self.verticalLayout_4.setObjectName("verticalLayout_4")
+        self.verticalLayout_4.setSpacing(1)
+        
+        self.rectgButton = QtWidgets.QPushButton(self.GridBox)
+        self.rectgButton.setObjectName("rectgButton")
+        self.rectgButton.setMaximumWidth(30)
+        self.rectgButton.setCheckable(True)
+        self.verticalLayout_4.addWidget(self.rectgButton)
+        
+     
+        self.circlegButton = QtWidgets.QPushButton(self.GridBox)
+        self.circlegButton.setObjectName("circlegButton")
+        self.circlegButton.setMaximumWidth(30)
+        self.circlegButton.setCheckable(True)
+        self.verticalLayout_4.addWidget(self.circlegButton)
+        
+        self.ellipsegButton = QtWidgets.QPushButton(self.GridBox)
+        self.ellipsegButton.setObjectName("ellipsegButton")
+        self.ellipsegButton.setCheckable(True)
+        self.ellipsegButton.setMaximumWidth(30)
+        self.verticalLayout_4.addWidget(self.ellipsegButton)
+        
+        self.spheregButton = QtWidgets.QPushButton(self.GridBox)
+        self.spheregButton.setObjectName("spheregButton")
+        self.spheregButton.setCheckable(True)
+        self.spheregButton.setMaximumWidth(30)
+        self.verticalLayout_4.addWidget(self.spheregButton)
+        
+        
         self.horizontalLayout_3.addWidget(self.Box1)
+        self.horizontalLayout_3.addWidget(self.GridBox)
 
         self.verticalLayout.addLayout(self.horizontalLayout_3)
        
@@ -193,7 +239,7 @@ class Ui_MainWindow(object):
 
         
         self.groupBox = QtWidgets.QGroupBox(self.centralwidget)
-        self.groupBox.setGeometry(QtCore.QRect(1225, 0, 130, 650))
+        self.groupBox.setGeometry(QtCore.QRect(1285, 0, 88, 650))
         self.groupBox.setObjectName("groupBox")
         self.widget = QtWidgets.QWidget(self.groupBox)
 
@@ -244,12 +290,13 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Motion List Generator"))
-        self.Box2.setTitle(_translate("MainWindow", ""))
+        self.Box1.setTitle(_translate("MainWindow", "Shape"))
+        self.GridBox.setTitle(_translate("MainWindow", "Grid"))
         self.label.setText(_translate("MainWindow", "dx (or dr) (cm)"))
-        self.label_2.setText(_translate("MainWindow", "dy (or dθ) (cm)"))
+        self.label_2.setText(_translate("MainWindow", "dy (or dθ) (cm or rad)"))
         self.label_3.setText(_translate("MainWindow", "z-range:"))
         self.label_4.setText(_translate("MainWindow", "to"))
-        self.label_5.setText(_translate("MainWindow", "z-resolution (cm)"))
+        self.label_5.setText(_translate("MainWindow", "dz (or dΦ) (cm or rad)"))
         self.label_str.setText(_translate("MainWindow", "||Input Coordinates here"))
         self.label_num.setText(_translate("MainWindow", "Number of data points defined:"))
         self.label_points.setText(_translate("MainWindow", "0"))
@@ -258,8 +305,8 @@ class Ui_MainWindow(object):
         self.metalabel.setText(_translate("MainWindow", "Probe Chirality"))
 
         
-        self.Box1.setTitle(_translate("MainWindow", ""))
-        self.groupBox.setTitle(_translate("MainWindow", "Meta-configuration"))
+        self.Box2.setTitle(_translate("MainWindow", ""))
+        self.groupBox.setTitle(_translate("MainWindow", "Meta"))
 
         self.lineButton.setText(_translate("MainWindow", "Line"))
         self.lineButton.setToolTip(_translate("MainWindow", "Click, Hold and Drag to define a line path"))
@@ -277,6 +324,18 @@ class Ui_MainWindow(object):
         self.ellipseButton.setText(_translate("MainWindow", "Ellipse"))
         self.ellipseButton.setToolTip(_translate("MainWindow", "Click and Drag to define a rectangle in which the ellipse will be inscribed."))
 
+
+        self.rectgButton.setText(_translate("MainWindow", "R"))
+        self.rectgButton.setToolTip(_translate("MainWindow", "Select for Rectangular gridding"))
+        
+        self.circlegButton.setText(_translate("MainWindow", "C"))
+        self.circlegButton.setToolTip(_translate("MainWindow", "Select for Circular (or cylindrical) gridding"))
+        
+        self.ellipsegButton.setText(_translate("MainWindow", "E"))
+        self.ellipsegButton.setToolTip(_translate("MainWindow", "Select for Elliptical gridding"))
+
+        self.spheregButton.setText(_translate("MainWindow", "S"))
+        self.spheregButton.setToolTip(_translate("MainWindow", "Select for Spherical gridding"))
 
         self.polylineButton.setText(_translate("MainWindow", "Polygon"))
         self.polylineButton.setToolTip(_translate("MainWindow", "Click and Drag to define line path. Click again to start second line. Double click to end."))

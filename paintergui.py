@@ -24,7 +24,14 @@ from MainWindow import Ui_MainWindow
 MODES = [
 
     'line', 'polyline',
-    'rect', 'barrier', 'circle','ellipse'
+    'rect', 'barrier', 'circle', 'ellipse'
+]
+
+
+GRIDS = [
+
+
+    'rect', 'circle', 'ellipse','sphere'
 ]
 
 
@@ -34,19 +41,14 @@ SELECTION_PEN = QPen(QColor(0xff, 0xff, 0xff), 1, Qt.DashLine)
 PREVIEW_PEN = QPen(QColor(0xff, 0xff, 0xff), 1, Qt.SolidLine)
 
 
-
-
-
 class MplCanvas(FigureCanvas):
 
     def __init__(self, parent=None, width=5, height=4, dpi=100):
-
 
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.grid()
         self.ax.mouse_init()
-
 
         # self.ax.set_xticks(np.arange(-60,60,1))
         uss = np.linspace(0, 2 * np.pi, 32)
@@ -56,14 +58,14 @@ class MplCanvas(FigureCanvas):
 
         xss = 50 * np.cos(uss)
         yss = 50 * np.sin(uss)
-        self.ax.plot_surface(xss,yss,zss,alpha = 0.5, color = 'grey')
+        self.ax.plot_surface(xss, yss, zss, alpha=0.5, color='grey')
         super(MplCanvas, self).__init__(self.fig)
-
 
 
 class Canvas(QLabel):
 
     mode = 'rect'
+    grid = 'rect'
 
     primary_color = QColor(Qt.black)
     # Store configuration settings, including pen width, fonts etc.
@@ -79,12 +81,12 @@ class Canvas(QLabel):
     move = pyqtSignal()
 
     def initialize(self):
-        self.background_color =  QColor(Qt.gray)
+        self.background_color = QColor(Qt.gray)
         self.eraser_color = QColor(Qt.white)
         self.eraser_color.setAlpha(100)
         self.hand = 0
         self.reset()
-        self.xpos =  []
+        self.xpos = []
         self.ypos = []
         self.nx = 10
         self.ny = 10
@@ -95,26 +97,28 @@ class Canvas(QLabel):
         self.cx = 0
         self.cy = 0
         self.bar = 0
-        
+        self.centers = ''
+
         p = QPainter(self.pixmap())
-        p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-       
+        p.setPen(QPen(QColor(Qt.black),
+                 self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
         p.setBrush(QBrush(QColor(Qt.red)))
 
-        p.drawEllipse(QPointF(300,300),1,1)
+        p.drawEllipse(QPointF(300, 300), 1, 1)
 
         p.setBrush(QBrush(QColor(Qt.white)))
 
-        p.drawEllipse(QPointF(300,300),250,250)
+        p.drawEllipse(QPointF(300, 300), 250, 250)
         if self.hand == 0:
-            p.drawRect(QRectF(550,290,10,20))
-            p.drawLine(290,50,560,310)
-            p.drawLine(290,550,560,290)
-        
+            p.drawRect(QRectF(550, 290, 10, 20))
+            p.drawLine(290, 50, 560, 310)
+            p.drawLine(290, 550, 560, 290)
+
         elif self.hand == 1:
-            p.drawRect(QRectF(50,290,-10,20))
-            p.drawLine(290,50,40,310)
-            p.drawLine(290,550,40,290)
+            p.drawRect(QRectF(50, 290, -10, 20))
+            p.drawLine(290, 50, 40, 310)
+            p.drawLine(290, 550, 40, 290)
 
         self.update()
 
@@ -126,34 +130,35 @@ class Canvas(QLabel):
         self.pixmap().fill(self.background_color)
 
         p = QPainter(self.pixmap())
-        p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setPen(QPen(QColor(Qt.black),
+                 self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.setBrush(QBrush(QColor(Qt.white)))
-        p.drawEllipse(QPointF(300,300),250,250)
-        
-        if self.hand ==0:
-            p.drawRect(QRectF(550,290,10,20))
-            p.drawLine(290,50,560,310)
-            p.drawLine(290,550,560,290)
-        elif self.hand ==1:
-            p.drawRect(QRectF(50,290,-10,20))
-            p.drawLine(290,50,40,310)
-            p.drawLine(290,550,40,290)            
-        
+        p.drawEllipse(QPointF(300, 300), 250, 250)
+
+        if self.hand == 0:
+            p.drawRect(QRectF(550, 290, 10, 20))
+            p.drawLine(290, 50, 560, 310)
+            p.drawLine(290, 550, 560, 290)
+        elif self.hand == 1:
+            p.drawRect(QRectF(50, 290, -10, 20))
+            p.drawLine(290, 50, 40, 310)
+            p.drawLine(290, 550, 40, 290)
+
         p.setBrush(QBrush(QColor(Qt.red)))
 
-        p.drawEllipse(QPointF(300,300),1,1)
+        p.drawEllipse(QPointF(300, 300), 1, 1)
 
     def set_primary_color(self, hex):
         self.primary_color = QColor(hex)
 
     def set_hand(self):
         if self.hand == 0:
-            self.hand =1
-        elif self.hand ==1:
+            self.hand = 1
+        elif self.hand == 1:
             self.hand = 0
 
-        self.reset()    
-        
+        self.reset()
+
     def set_mode(self, mode):
         # Clean up active timer animations.
         self.timer_cleanup()
@@ -171,6 +176,9 @@ class Canvas(QLabel):
 
         # Apply the mode
         self.mode = mode
+
+    def set_grid(self, grid):
+        self.grid = grid
 
     def reset_mode(self):
         self.set_mode(self.mode)
@@ -200,18 +208,19 @@ class Canvas(QLabel):
             msg.setInformativeText('Designated point is outside the Machine!')
             msg.setWindowTitle("Error")
             msg.exec_()
-        
-        if self.hand ==0:
-            if  (e.y()  - 310 -  e.x() +  560 < 0):
+
+        if self.hand == 0:
+            if (e.y() - 310 - e.x() + 560 < 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Error")
-                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setInformativeText(
+                    'Designated point is outside of reach!!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
 
-            elif  (e.y() -290  + e.x() -  560 > 0):
+            elif (e.y() - 290 + e.x() - 560 > 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
@@ -221,16 +230,17 @@ class Canvas(QLabel):
                 msg.exec_()
 
         if self.hand == 1:
-            if  (e.y()  - 310 + e.x() -40 < 0):
+            if (e.y() - 310 + e.x() - 40 < 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Error")
-                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setInformativeText(
+                    'Designated point is outside of reach!!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
 
-            elif  (e.y() -290  - e.x() +  40 > 0):
+            elif (e.y() - 290 - e.x() + 40 > 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
@@ -238,12 +248,12 @@ class Canvas(QLabel):
                 msg.setInformativeText('Designated point is outside of reach!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
-                
+
         if e.x() is not None and e.y() is not None:
-                self.xpos = np.append(self.xpos,e.x()-300)
-                self.ypos = np.append(self.ypos,-e.y()+300)
-                if fn:
-                    return fn(e)
+            self.xpos = np.append(self.xpos, e.x()-300)
+            self.ypos = np.append(self.ypos, -e.y()+300)
+            if fn:
+                return fn(e)
 
     def mouseMoveEvent(self, e):
         self.cx = e.x()
@@ -264,17 +274,18 @@ class Canvas(QLabel):
             msg.setInformativeText('Designated point is outside the Machine!')
             msg.setWindowTitle("Error")
             msg.exec_()
-        if self.hand ==0:
-            if  (e.y()  - 310 -  e.x() +  560 < 0):
+        if self.hand == 0:
+            if (e.y() - 310 - e.x() + 560 < 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Error")
-                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setInformativeText(
+                    'Designated point is outside of reach!!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
 
-            elif  (e.y() -290  + e.x() -  560 > 0):
+            elif (e.y() - 290 + e.x() - 560 > 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
@@ -284,16 +295,17 @@ class Canvas(QLabel):
                 msg.exec_()
 
         if self.hand == 1:
-            if  (e.y()  - 310 + e.x() -40 < 0):
+            if (e.y() - 310 + e.x() - 40 < 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Error")
-                msg.setInformativeText('Designated point is outside of reach!!')
+                msg.setInformativeText(
+                    'Designated point is outside of reach!!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
 
-            elif  (e.y() -290  - e.x() +  40 > 0):
+            elif (e.y() - 290 - e.x() + 40 > 0):
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
@@ -303,21 +315,19 @@ class Canvas(QLabel):
                 msg.exec_()
 
         if e.x() is not None and e.y() is not None:
-                self.xpos = np.append(self.xpos,e.x()-300)
-                self.ypos = np.append(self.ypos,-e.y()+300)
-                if fn:
-                    return fn(e)
+            self.xpos = np.append(self.xpos, e.x()-300)
+            self.ypos = np.append(self.ypos, -e.y()+300)
+            if fn:
+                return fn(e)
 
     def mouseDoubleClickEvent(self, e):
         fn = getattr(self, "%s_mouseDoubleClickEvent" % self.mode, None)
         if fn:
             return fn(e)
 
-
         self.last_pos = None
 
     # Mode-specific events.
-
 
     # def generic_shape_mousePressEvent(self, e):
     #     self.origin_pos = e.pos()
@@ -388,14 +398,14 @@ class Canvas(QLabel):
             self.timer_cleanup()
 
             p = QPainter(self.pixmap())
-            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(self.primary_color,
+                     self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
             p.drawLine(self.origin_pos, e.pos())
             self.update()
 
         self.reset_mode()
-        
-        
+
     # barrier events
 
     def barrier_mousePressEvent(self, e):
@@ -427,33 +437,39 @@ class Canvas(QLabel):
             self.timer_cleanup()
 
             p = QPainter(self.pixmap())
-            p.setPen(QPen(QColor('#800000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(QColor('#800000'),
+                     self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
             p.drawLine(self.origin_pos, e.pos())
-            
-            p.setPen(QPen(QColor('#FF0000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-           
+
+            p.setPen(QPen(QColor('#FF0000'),
+                     self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
             if self.hand == 1:
                 C = (-self.origin_pos.y() + 300)/(self.origin_pos.x() - 50)
-                xv = (100*C*C +600 + np.sqrt((100*C*C + 600)**2 - 4*(C*C+1)*(2500*C*C +90000-250**2)))/(2*(C*C+1))
+                xv = (100*C*C + 600 + np.sqrt((100*C*C + 600)**2 - 4 *
+                      (C*C+1)*(2500*C*C + 90000-250**2)))/(2*(C*C+1))
                 yv = -300 + C*(xv-50)
-                p.drawLine(self.origin_pos, QPointF(xv,-yv))
-                
+                p.drawLine(self.origin_pos, QPointF(xv, -yv))
+
                 C = (-e.y() + 300)/(e.x() - 50)
-                xv = (100*C*C +600 + np.sqrt((100*C*C + 600)**2 - 4*(C*C+1)*(2500*C*C +90000-250**2)))/(2*(C*C+1))
+                xv = (100*C*C + 600 + np.sqrt((100*C*C + 600)**2 - 4 *
+                      (C*C+1)*(2500*C*C + 90000-250**2)))/(2*(C*C+1))
                 yv = -300 + C*(xv-50)
-                p.drawLine(e.pos(), QPointF(xv,-yv))
-                
-            if self.hand ==0:
+                p.drawLine(e.pos(), QPointF(xv, -yv))
+
+            if self.hand == 0:
                 C = (-self.origin_pos.y() + 300)/(self.origin_pos.x() - 550)
-                xv = (1100*C*C +600 - np.sqrt((1100*C*C + 600)**2 - 4*(C*C+1)*(550*550*C*C +90000-250**2)))/(2*(C*C+1))
+                xv = (1100*C*C + 600 - np.sqrt((1100*C*C + 600)**2 - 4 *
+                      (C*C+1)*(550*550*C*C + 90000-250**2)))/(2*(C*C+1))
                 yv = -300 + C*(xv-550)
-                p.drawLine(self.origin_pos, QPointF(xv,-yv))
-                
+                p.drawLine(self.origin_pos, QPointF(xv, -yv))
+
                 C = (-e.y() + 300)/(e.x() - 550)
-                xv = (1100*C*C +600 - np.sqrt((1100*C*C + 600)**2 - 4*(C*C+1)*(550*550*C*C +90000-250**2)))/(2*(C*C+1))
+                xv = (1100*C*C + 600 - np.sqrt((1100*C*C + 600)**2 - 4 *
+                      (C*C+1)*(550*550*C*C + 90000-250**2)))/(2*(C*C+1))
                 yv = -300 + C*(xv-550)
-                p.drawLine(e.pos(), QPointF(xv,-yv))
+                p.drawLine(e.pos(), QPointF(xv, -yv))
 
             self.update()
             self.bar += 2
@@ -484,7 +500,8 @@ class Canvas(QLabel):
 
         if not final:
             p.setPen(pen)
-            getattr(p, self.active_shape_fn)(*self.history_pos + [self.current_pos])
+            getattr(p, self.active_shape_fn)(
+                *self.history_pos + [self.current_pos])
 
         self.update()
         self.last_pos = self.current_pos
@@ -496,8 +513,8 @@ class Canvas(QLabel):
     def generic_poly_mouseDoubleClickEvent(self, e):
         self.timer_cleanup()
         p = QPainter(self.pixmap())
-        p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-
+        p.setPen(QPen(self.primary_color,
+                 self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
         getattr(p, self.active_shape_fn)(*self.history_pos + [e.pos()])
         self.update()
@@ -529,18 +546,19 @@ class Canvas(QLabel):
         self.current_pos = e.pos()
         self.timer_event = self.rect_timerEvent
 
-
     def rect_timerEvent(self, final=False):
         p = QPainter(self.pixmap())
         p.setCompositionMode(QPainter.RasterOp_SourceXorDestination)
         pen = self.preview_pen
         p.setPen(pen)
         if self.last_pos:
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
 
         if not final:
             p.setPen(pen)
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
 
         self.update()
         self.last_pos = self.current_pos
@@ -554,17 +572,16 @@ class Canvas(QLabel):
             self.timer_cleanup()
 
             p = QPainter(self.pixmap())
-            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+            p.setPen(QPen(self.primary_color,
+                     self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
 
             if self.config['fill']:
                 p.setBrush(QBrush(self.primary_color))
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, e.pos()), *self.active_shape_args)
             self.update()
 
         self.reset_mode()
-
-        
-        
 
     # Circle events
 
@@ -582,14 +599,18 @@ class Canvas(QLabel):
         pen = self.preview_pen
         p.setPen(pen)
         if self.last_pos:
-            r = np.sqrt( ( self.origin_pos.x() - self.last_pos.x() )**2 + ( self.origin_pos.y() - self.last_pos.y() )**2  )
+            r = np.sqrt((self.origin_pos.x() - self.last_pos.x()) **
+                        2 + (self.origin_pos.y() - self.last_pos.y())**2)
 
-            getattr(p, self.active_shape_fn)( self.origin_pos,r,r, *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                self.origin_pos, r, r, *self.active_shape_args)
 
         if not final:
             p.setPen(pen)
-            r = np.sqrt( ( self.origin_pos.x() - self.current_pos.x() )**2 + ( self.origin_pos.y() - self.current_pos.y() )**2  )
-            getattr(p, self.active_shape_fn)( self.origin_pos,r,r, *self.active_shape_args)
+            r = np.sqrt((self.origin_pos.x() - self.current_pos.x())
+                        ** 2 + (self.origin_pos.y() - self.current_pos.y())**2)
+            getattr(p, self.active_shape_fn)(
+                self.origin_pos, r, r, *self.active_shape_args)
 
         self.update()
         self.last_pos = self.current_pos
@@ -601,19 +622,22 @@ class Canvas(QLabel):
         if self.last_pos:
             # Clear up indicator.
             self.timer_cleanup()
-            r = np.sqrt( ( self.origin_pos.x() - self.last_pos.x() )**2 + ( self.origin_pos.y() - self.last_pos.y() )**2  )
+            r = np.sqrt((self.origin_pos.x() - self.last_pos.x()) **
+                        2 + (self.origin_pos.y() - self.last_pos.y())**2)
 
             p = QPainter(self.pixmap())
-            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+            p.setPen(QPen(self.primary_color,
+                     self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
 
             if self.config['fill']:
                 p.setBrush(QBrush(self.primary_color))
-            getattr(p, self.active_shape_fn)(self.origin_pos,r,r, *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                self.origin_pos, r, r, *self.active_shape_args)
             self.update()
 
         self.reset_mode()
 
-#Ellipse events
+# Ellipse events
     def ellipse_mousePressEvent(self, e):
         self.active_shape_fn = 'drawEllipse'
         self.active_shape_args = ()
@@ -628,11 +652,13 @@ class Canvas(QLabel):
         pen = self.preview_pen
         p.setPen(pen)
         if self.last_pos:
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, self.last_pos), *self.active_shape_args)
 
         if not final:
             p.setPen(pen)
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, self.current_pos), *self.active_shape_args)
 
         self.update()
         self.last_pos = self.current_pos
@@ -646,84 +672,80 @@ class Canvas(QLabel):
             self.timer_cleanup()
 
             p = QPainter(self.pixmap())
-            p.setPen(QPen(self.primary_color, self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+            p.setPen(QPen(self.primary_color,
+                     self.config['size'], Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
 
             if self.config['fill']:
                 p.setBrush(QBrush(self.primary_color))
-            getattr(p, self.active_shape_fn)(QRect(self.origin_pos, e.pos()), *self.active_shape_args)
+            getattr(p, self.active_shape_fn)(
+                QRect(self.origin_pos, e.pos()), *self.active_shape_args)
             self.update()
 
         self.reset_mode()
 
-
-
-
-
-
-
-
-    def resetpos(self,arg):
+    def resetpos(self, arg):
         self.xpos = []
         self.ypos = []
         self.poslist = []
-        self.barlist =[]
+        self.barlist = []
         self.bar = 0
         arg.saveButton.setEnabled(False)
 
-#####everything internal is handled in coordinate units. ###### EXCEPT THE BARLIST
-###########means output list is also in coord units.
-########## 1 cm = 5pixel.
+# everything internal is handled in coordinate units. ###### EXCEPT THE BARLIST
+# means output list is also in coord units.
+# 1 cm = 5pixel.
 
-    def set_status(self,arg):
+    def set_status(self, arg):
         self.nx = 5*float(arg.xres.text())
         self.ny = 5*float(arg.yres.text())
         self.nz = 5*float(arg.zres.text())
         self.z1 = 5*float(arg.z1.text())
         self.z2 = 5*float(arg.z2.text())
-        
 
-    def print_positions(self,arg):
+    def print_positions(self, arg):
         # print(self.xpos)
         # print(self.ypos)
         # self.set_status()
         mode = self.mode
         bar = self.bar
-        self.zpos = [self.z1,self.z2]
+        self.zpos = [self.z1, self.z2]
         barlist = []
         arg.saveButton.setEnabled(False)
-#apologies to anyone reading this code, but the transformations between one coord system and another are too irksome to document.        
-        for i in range(0,bar-1,2):
+# apologies to anyone reading this code, but the transformations between one coord system and another are too irksome to document.
+        for i in range(0, bar-1, 2):
             xe = self.xpos[i+1]
             xorg = self.xpos[i]
             ye = self.ypos[i+1]
             yorg = self.ypos[i]
-            
+
             if self.hand == 1:
                 C = (yorg)/(xorg + 250)
-                xvo = ( -(500*C*C) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                yvo =   C*(xvo+250)
+                xvo = (-(500*C*C) + np.sqrt((C*C*500)**2 -
+                       4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yvo = C*(xvo+250)
 
-                
-                C = ye/(xe +250)
-                xve = ( -(C*C*500) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                yve =   C*(xve+250)
+                C = ye/(xe + 250)
+                xve = (-(C*C*500) + np.sqrt((C*C*500)**2 -
+                       4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yve = C*(xve+250)
 
-                
-            if self.hand ==0:
+            if self.hand == 0:
                 C = (yorg)/(xorg - 250)
-                xvo = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                yvo =   C*(xvo-250)
+                xvo = ((C*C*500) - np.sqrt((C*C*500)**2 -
+                       4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yvo = C*(xvo-250)
 
-                
                 C = (ye)/(xe - 250)
-                xve = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                yve =   C*(xve-250) 
-                
-            barlist.append([(xorg,yorg,self.z1),(xe,ye,self.z1),(xvo,yvo,self.z1),(xve,yve,self.z1)])
-            
-        barlist = np.array(barlist)/5   
+                xve = ((C*C*500) - np.sqrt((C*C*500)**2 -
+                       4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                yve = C*(xve-250)
+
+            barlist.append([(xorg, yorg, self.z1), (xe, ye, self.z1),
+                           (xvo, yvo, self.z1), (xve, yve, self.z1)])
+
+        barlist = np.array(barlist)/5
         self.barlist = barlist
-        
+
         if mode == "line":
             self.get_positionsline()
             # self.update_graph(self.poslist)
@@ -735,462 +757,946 @@ class Canvas(QLabel):
         elif mode == "polyline":
             self.get_positionspoly()
             # self.update_graph(self.poslist)
-            
+
         elif mode == 'circle':
             self.get_positionscircle()
 
         elif mode == 'ellipse':
             self.get_positionsellipse()
 
-
-
     def get_positionsrect(self):
         bar = self.bar
         poslist = []
-        
-        for i in range(bar,len(self.xpos)-1,2):
-            xmax = self.xpos[i+1]
-            xmin = self.xpos[i]
-            ymax = self.ypos[i+1]
-            ymin = self.ypos[i]
-            nx = self.nx
-            ny = self.ny
-            nz = self.nz
 
-            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+        if self.grid == 'rect':
+            for i in range(bar, len(self.xpos)-1, 2):
+                xmax = self.xpos[i+1]
+                xmin = self.xpos[i]
+                ymax = self.ypos[i+1]
+                ymin = self.ypos[i]
+                nx = self.nx
+                ny = self.ny
+                nz = self.nz
 
-            linvalx = abs(math.floor((xmax-xmin)/(nx)))
-            linvaly = abs(math.floor((ymax-ymin)/(ny)))
+                linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
 
-            zvals = np.linspace(self.z1,self.z2,linvalz+1)
-            xpos = np.linspace(xmin,xmax,linvalx+1)
-            ypos = np.linspace(ymin,ymax,linvaly+1)
+                linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                linvaly = abs(math.floor((ymax-ymin)/(ny)))
 
-            #I didn't understand the earlier get_positions code so I've rewritten it.
-            positions = []
-            for z in range(0,len(zvals)):
-                for x in range(0,len(xpos)):
-                    for y in range(0,len(ypos)):
-                        positions.append(  [ xpos[x],ypos[y],zvals[z] ]  )
+                zvals = np.linspace(self.z1, self.z2, linvalz+1)
+                xpos = np.linspace(xmin, xmax, linvalx+1)
+                ypos = np.linspace(ymin, ymax, linvaly+1)
 
+                positions = []
+                for z in range(0, len(zvals)):
+                    for x in range(0, len(xpos)):
+                        for y in range(0, len(ypos)):
+                            positions.append([xpos[x], ypos[y], zvals[z]])
 
-            poslist.extend(positions)
-            # print(poslist)
-            self.poslist = poslist
-            
-
-
-
-    def get_positionsline(self):
-            poslist = []
-            bar = self.bar
-            xs = self.xpos
-            ys = self.ypos
-
-            nz = self.nz
-
-            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
-            zvals = np.linspace(self.z1,self.z2,linvalz+1)
-            xpos = [xs[0]]
-            ypos = [ys[0]]
-#            zpos = [zs[0]]
-
-            for i in range(bar,len(xs)-1,2):
-
-        #general idea for motion list- user gave end points of line segments.
-        #each point is essentially a location in the array. Get distance between the
-        #two array points.    #Get an equation of the line joining two points in the array.
-            #Get real coordinates of the point on this line at every
-        #  'res' distance.
-
-
-
-
-        #the coordinates of the two end points of line segment
-
-                xposi = xs[i]
-                xposi2 = xs[i+1]
-
-                yposi = ys[i]
-                yposi2 = ys[i+1]
-
-                # zposi = zs[i]
-                # zposi2 =zs[i+1]
-                res= (self.nx**2 + self.ny**2)**0.5
-                length = ((xposi2-xposi)**2 + (yposi2-yposi)**2)**0.5
-                linval = math.floor(length/(res))
-
-                parvals = np.linspace(0,1,linval+1)
-
-                for t in parvals[1:]: #first start point already initialized in array.
-            ##Other start points are incorporated as the end points of previous segment.
-
-                    xval = xposi + t*(xposi2 - xposi)
-                    yval = yposi + t*(yposi2 - yposi)
-                    # zval = zposi + t*(zposi2 - zposi)
-                    xpos = np.append(xpos,xval)
-                    ypos = np.append(ypos,yval)
-
-
-            for z in range(0,len(zvals)):
-                zpos = z*np.ones(len(xpos))
-                positions = list(zip(xpos,ypos,zpos))
-                poslist = poslist + positions
-
-
-
-
+                poslist.extend(positions)
             self.poslist = poslist
 
-    def get_positionspoly(self):
-        poslist = []
-        bar = self.bar
-        xs = np.delete(self.xpos,-1)
-        ys = np.delete(self.ypos,-1)
+        if self.grid == 'circle':
 
-        xs = xs[1::2]
-        ys = ys[1::2]
-        xpos = [xs[0]]
-        ypos = [ys[0]]
-
-        for i in range(bar,len(xs)-1):
-                    xposi = xs[i]
-                    xposi2 = xs[i+1]
-
-                    yposi = ys[i]
-                    yposi2 = ys[i+1]
-
-                    res= (self.nx**2 + self.ny**2)**0.5
-                    length = ((xposi2-xposi)**2 + (yposi2-yposi)**2)**0.5
-                    linval = math.floor(length/(res))
-
-                    parvals = np.linspace(0,1,linval+1)
-
-                    for t in parvals[1:]: #first start point already initialized in array.
-                    ##Other start points are incorporated as the end points of previous segment.
-
-                        xval = xposi + t*(xposi2 - xposi)
-                        yval = yposi + t*(yposi2 - yposi)
-                        # zval = zposi + t*(zposi2 - zposi)
-                        xpos = np.append(xpos,xval)
-                        ypos = np.append(ypos,yval)
-
-        nz = self.nz
-
-        linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
-        zvals = np.linspace(self.z1,self.z2,linvalz+1)
-
-        for z in range(0,len(zvals)):
-            zpos = z*np.ones(len(xpos))
-            positions = list(zip(xpos,ypos,zpos))
-            poslist = poslist+ positions
-
-
-
-
-        self.poslist = poslist
-        
-        
-    def get_positionscircle(self):
-        
-            poslist = []
-            bar = self.bar
-            xs = self.xpos
-            ys = self.ypos
-
+            xpos = []
+            ypos = []
+            dr = self.nx
+            dtheta = self.ny/5
             nz = self.nz
+            for i in range(bar, len(self.xpos)-1, 2):
+                xmax = max([self.xpos[i+1], self.xpos[i]])
+                xmin = min([self.xpos[i+1], self.xpos[i]])
+                ymax = max([self.ypos[i+1], self.ypos[i]])
+                ymin = min([self.ypos[i+1], self.ypos[i]])
 
-            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
-            zvals = np.linspace(self.z1,self.z2,linvalz+1)
-            xpos = [xs[0]]
-            ypos = [ys[0]]
-#            zpos = [zs[0]]
+                linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+                if self.centers == '':
+                    cx = (xmax+xmin)/2
+                    cy = (ymax+ymin)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i/2]
+                    cy = ys[i/2]
+                    cz = zs[i/2]
+        # NEED TO RECALCULATE POINT GENERATING PARAMETERS TO GET APPROPRIATE ONES WITHIN THE REGION.
+                zvals = np.linspace(self.z1, self.z2, linvalz+1)
+                xpos = np.append(xpos, cx)
+                ypos = np.append(ypos, cy)
 
-            for i in range(bar,len(xs)-1,2):
+                r = 0.5*(np.sqrt((xmax-xmin)**2 + (ymax-ymin)**2))
 
-                xposi = xs[i]
-                xposi2 = xs[i+1]
-
-                yposi = ys[i]
-                yposi2 = ys[i+1]
-                
-                r = np.sqrt( (xposi -xposi2)**2 + (yposi-yposi2)**2   )
-                # zposi = zs[i]
-                # zposi2 =zs[i+1]
-                dr = self.nx
-                dtheta = self.ny
-                
                 linval = math.floor(r/(dr))
-                
-                thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
-                parvals = np.linspace(0,1,linval+1)
 
-                for t in parvals[1:]: #first start point already initialized in array.
-            ##Other start points are incorporated as the end points of previous segment.
-                    for z in thetavals:
-                        xval = xposi + t*r*np.cos(z)
-                        yval = yposi + t*r*np.sin(z)
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
+                positions = []
+                # first start point already initialized in array.
+                for t in parvals[1:]:
+                    # Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals[1:]:
+                        xval = cx + t*r*np.cos(z*2*np.pi)
+                        yval = cy + t*r*np.sin(z*2*np.pi)
 
-                        xpos = np.append(xpos,xval)
-                        ypos = np.append(ypos,yval)
+                        if (xval > xmax) or xval < xmin or yval > ymax or yval < ymin:
+                            pass
+                        else:
+                            xpos = np.append(xpos, xval)
+                            ypos = np.append(ypos, yval)
 
-
-            for z in range(0,len(zvals)):
-                zpos = z*np.ones(len(xpos))
-                positions = list(zip(xpos,ypos,zpos))
-                poslist = poslist + positions
-
-
-
+                for z in range(0, len(zvals)):
+                    zpos = z*np.ones(len(xpos))
+                    positions = list(zip(xpos, ypos, zpos))
+                    poslist = poslist + positions
 
             self.poslist = poslist
-            
-            
-            
-    def get_positionsellipse(self):
-        
-            poslist = []
-            bar = self.bar
-            xs = self.xpos
-            ys = self.ypos
 
-            nz = self.nz
-
-            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
-            zvals = np.linspace(self.z1,self.z2,linvalz+1)
-            xpos = [xs[0]]
-            ypos = [ys[0]]
-#            zpos = [zs[0]]
-
-            for i in range(bar,len(xs)-1,2):
-
-                xposi = xs[i]
-                xposi2 = xs[i+1]
-
-                yposi = ys[i]
-                yposi2 = ys[i+1]
                 
+        if self.grid == 'sphere':
+
+           
+            dr = self.nx
+            dtheta = self.ny/5
+            dphi = self.nz/5
+            for i in range(bar, len(self.xpos)-1, 2):
+                xmax = max([self.xpos[i+1], self.xpos[i]])
+                xmin = min([self.xpos[i+1], self.xpos[i]])
+                ymax = max([self.ypos[i+1], self.ypos[i]])
+                ymin = min([self.ypos[i+1], self.ypos[i]])
+                zmax = max([self.z1,self.z2])
+                zmin = min([self.z1,self.z2])
+                
+                if self.centers == '':
+                    cx = (xmax+xmin)/2
+                    cy = (ymax+ymin)/2
+                    cz = (zmax+zmin)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i/2]
+                    cy = ys[i/2]
+                    cz = zs[i/2]
+        # NEED TO RECALCULATE POINT GENERATING PARAMETERS TO GET APPROPRIATE ONES WITHIN THE REGION.
+                
+               
+                r = (np.sqrt((xmax-xmin)**2 + (ymax-ymin)**2) + (zmax-zmin)**2)
+
+                linval = math.floor(r/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                phivals = np.linspace(0,1,math.floor(180/dphi)+1)
+                parvals = np.linspace(0, 1, linval+1)
+                positions = [[cx,cy,cz]]
+                # first start point already initialized in array.
+                for t in parvals[1:]:
+                    # Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals[1:]:
+                        for p in phivals[1:]:
+                            xval = cx + t*r*np.cos(z*2*np.pi)*np.sin(p*np.pi)
+                            yval = cy + t*r*np.sin(z*2*np.pi)*np.sin(p*np.pi)
+                            zval = cz + t*r*np.cos(p*np.pi)
+                        if (xval > xmax) or xval < xmin or yval > ymax or yval < ymin or zval > zmax or zval < zmin:
+                            pass
+                        else:
+                            positions.append([xval, yval, zval])
+
+                poslist = poslist + positions
+
+            self.poslist = poslist
+
+        
+        if self.grid == 'ellipse':
+            
+            xpos = [self.xpos[bar]]
+            ypos = [self.ypos[bar]]
+            dr = self.nx
+            dtheta = self.ny/5
+            nz = self.nz
+            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+            zvals = np.linspace(self.z1, self.z2, linvalz+1)
+
+            for i in range(bar, len(self.xpos)-1, 2):
+
+                xposi = self.xpos[i]
+                xposi2 = self.xpos[i+1]
+
+                yposi = self.ypos[i]
+                yposi2 = self.ypos[i+1]
+
                 a = np.abs(xposi2 - xposi)
                 b = np.abs(yposi2-yposi)
                 cx = (xposi + xposi2)/2
                 cy = (yposi + yposi2)/2
                 # zposi = zs[i]
                 # zposi2 =zs[i+1]
-                dr = self.nx
-                dtheta = self.ny
-                
-                linval = math.floor((min([a,b]))/(dr))
-                
-                thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
-                parvals = np.linspace(0,1,linval+1)
 
-                for t in parvals[1:]: #first start point already initialized in array.
-            ##Other start points are incorporated as the end points of previous segment.
-                    for z in thetavals:
-                        xval = cx + t*a*np.cos(z)
-                        yval = cy + t*b*np.sin(z)
+                linval = math.floor((min([a, b]))/(dr))
 
-                        xpos = np.append(xpos,xval)
-                        ypos = np.append(ypos,yval)
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
 
+                for t in parvals[1:]:
+                    for z in thetavals[1:]:
+                        xval = cx + t*a*np.cos(z*2*np.pi)
+                        yval = cy + t*b*np.sin(z*2*np.pi)
 
-            for z in range(0,len(zvals)):
+                        xpos = np.append(xpos, xval)
+                        ypos = np.append(ypos, yval)
+
+            for z in range(0, len(zvals)):
                 zpos = z*np.ones(len(xpos))
-                positions = list(zip(xpos,ypos,zpos))
+                positions = list(zip(xpos, ypos, zpos))
+                poslist = poslist + positions
+                
+
+    def get_positionsline(self):
+        poslist = []
+        bar = self.bar
+        xs = self.xpos
+        ys = self.ypos
+
+        nz = self.nz
+
+        linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+        zvals = np.linspace(self.z1, self.z2, linvalz+1)
+        xpos = []
+        ypos = []
+#            zpos = [zs[0]]
+
+        for i in range(bar, len(xs)-1, 2):
+
+            # general idea for motion list- user gave end points of line segments.
+            # each point is essentially a location in the array. Get distance between the
+            # two array points.    #Get an equation of the line joining two points in the array.
+            # Get real coordinates of the point on this line at every
+            #  'res' distance.
+
+            # the coordinates of the two end points of line segment
+
+            xposi = xs[i]
+            xposi2 = xs[i+1]
+
+            yposi = ys[i]
+            yposi2 = ys[i+1]
+
+            # zposi = zs[i]
+            # zposi2 =zs[i+1]
+            res = (self.nx**2 + self.ny**2)**0.5
+            length = ((xposi2-xposi)**2 + (yposi2-yposi)**2)**0.5
+            linval = math.floor(length/(res))
+
+            parvals = np.linspace(0, 1, linval+1)
+
+            for t in parvals:
+
+                xval = xposi + t*(xposi2 - xposi)
+                yval = yposi + t*(yposi2 - yposi)
+                # zval = zposi + t*(zposi2 - zposi)
+                xpos = np.append(xpos, xval)
+                ypos = np.append(ypos, yval)
+
+        for z in range(0, len(zvals)):
+            zpos = z*np.ones(len(xpos))
+            positions = list(zip(xpos, ypos, zpos))
+            poslist = poslist + positions
+
+        self.poslist = poslist
+
+    def get_positionspoly(self):
+        poslist = []
+        bar = self.bar
+        xs = np.delete(self.xpos, -1)
+        ys = np.delete(self.ypos, -1)
+
+        xs = xs[1::2]
+        ys = ys[1::2]
+        xpos = [xs[bar-1]]
+        ypos = [ys[bar-1]]
+
+        for i in range(bar-1, len(xs)-1):
+            xposi = xs[i]
+            xposi2 = xs[i+1]
+
+            yposi = ys[i]
+            yposi2 = ys[i+1]
+
+            res = (self.nx**2 + self.ny**2)**0.5
+            length = ((xposi2-xposi)**2 + (yposi2-yposi)**2)**0.5
+            linval = math.floor(length/(res))
+
+            parvals = np.linspace(0, 1, linval+1)
+
+            for t in parvals[1:]:
+
+                xval = xposi + t*(xposi2 - xposi)
+                yval = yposi + t*(yposi2 - yposi)
+                # zval = zposi + t*(zposi2 - zposi)
+                xpos = np.append(xpos, xval)
+                ypos = np.append(ypos, yval)
+
+        nz = self.nz
+
+        linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+        zvals = np.linspace(self.z1, self.z2, linvalz+1)
+
+        for z in range(0, len(zvals)):
+            zpos = z*np.ones(len(xpos))
+            positions = list(zip(xpos, ypos, zpos))
+            poslist = poslist + positions
+
+        self.poslist = poslist
+
+    def get_positionscircle(self):
+
+        poslist = []
+        bar = self.bar
+        xs = self.xpos
+        ys = self.ypos
+
+        if self.grid == 'rect':
+            for i in range(bar, len(self.xpos)-1, 2):
+
+                xposi2 = self.xpos[i+1]
+                xposi = self.xpos[i]
+                yposi2 = self.ypos[i+1]
+                yposi = self.ypos[i]
+
+                r = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+                nx = self.nx
+                ny = self.ny
+                nz = self.nz
+
+                if self.centers == '':
+                    cx = xposi
+                    cy = yposi
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i]
+                    cy = ys[i]
+                    cz = zs[i]
+
+                xmax = cx + r
+                xmin = cx - r
+                ymax = cy + r
+                ymin = cy - r
+
+                linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+
+                linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                linvaly = abs(math.floor((ymax-ymin)/(ny)))
+
+                zvals = np.linspace(self.z1, self.z2, linvalz+1)
+                xpos = np.linspace(xmin, xmax, linvalx+1)
+                ypos = np.linspace(ymin, ymax, linvaly+1)
+
+                positions = []
+                for z in range(0, len(zvals)):
+                    for x in range(0, len(xpos)):
+                        for y in range(0, len(ypos)):
+                            r1 = np.sqrt((cx-xpos[x])**2 + (cy-ypos[y])**2)
+                            if r1 <= r:
+                                positions.append([xpos[x], ypos[y], zvals[z]])
+                            else:
+                                pass
+
+                poslist.extend(positions)
+            self.poslist = poslist
+
+        if self.grid == 'circle':
+
+            dr = self.nx
+            dtheta = self.ny/5
+            nz = self.nz
+
+            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+            zvals = np.linspace(self.z1, self.z2, linvalz+1)
+            xpos = [xs[bar]]
+            ypos = [ys[bar]]
+#                
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+
+                r = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+                # zposi = zs[i]
+                # zposi2 =zs[i+1]
+
+                linval = math.floor(r/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
+
+                for t in parvals[1:]:
+                    for z in thetavals[1:]:
+                        xval = xposi + t*r*np.cos(z*2*np.pi)
+                        yval = yposi + t*r*np.sin(z*2*np.pi)
+
+                        xpos = np.append(xpos, xval)
+                        ypos = np.append(ypos, yval)
+
+            for z in range(0, len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos, ypos, zpos))
                 poslist = poslist + positions
 
+            self.poslist = poslist
 
+        if self.grid == 'sphere':
 
+            dr = self.nx
+            dtheta = self.ny/5
+            dphi = self.nz/5
+            zmax = max([self.z1,self.z2])
+            zmin = min([self.z1,self.z2])
+
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+
+                rc = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2 )
+                
+                if self.centers == '':
+                    cx = xposi
+                    cy = yposi
+                    cz = (zmax+zmin)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i/2]
+                    cy = ys[i/2]
+                    cz = zs[i/2]
+                
+                xmax = cx + rc
+                xmin = cx - rc
+                ymax = cy + rc
+                ymin = cy -rc
+                
+                r = 0.5*(np.sqrt((xmax-xmin)**2 + (ymax-ymin)**2) + (zmax-zmin)**2)
+
+                linval = math.floor(r/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                phivals = np.linspace(0,1,math.floor(180/dphi)+1)
+                parvals = np.linspace(0, 1, linval+1)
+                positions = [[cx,cy,cz]]
+                # first start point already initialized in array.
+                for t in parvals[1:]:
+                    # Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals[1:]:
+                        for p in phivals[1:]:
+                            xval = cx + t*r*np.cos(z*2*np.pi)*np.sin(p*np.pi)
+                            yval = cy + t*r*np.sin(z*2*np.pi)*np.sin(p*np.pi)
+                            zval = cz + t*r*np.cos(p*np.pi)
+                        if (xval-cx)**2 + (yval-cy)**2 > rc**2 or zval > zmax or zval < zmin:
+                            pass
+                        else:
+                            positions.append([xval, yval, zval])
+
+                poslist = poslist + positions
 
             self.poslist = poslist
+
+        if self.grid == 'ellipse':
+
+            dr = self.nx
+            dtheta = self.ny/5
+            nz = self.nz
+
+            linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+            zvals = np.linspace(self.z1, self.z2, linvalz+1)
+            xpos = [xs[bar]]
+            ypos = [ys[bar]]
+#                zpos = [zs[0]]
+
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+
+                r = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+                # zposi = zs[i]
+                # zposi2 =zs[i+1]
+
+                linval = math.floor(r/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
+
+                for t in parvals[1:]:
+                    for z in thetavals[1:]:
+                        xval = xposi + t*r*np.cos(z*2*np.pi)
+                        yval = yposi + t*r*np.sin(z*2*np.pi)
+
+                        xpos = np.append(xpos, xval)
+                        ypos = np.append(ypos, yval)
+
+            for z in range(0, len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos, ypos, zpos))
+                poslist = poslist + positions
+
+            self.poslist = poslist
+   
+    
+    def get_positionsellipse(self):
+
+        poslist = []
+        bar = self.bar
+        xs = self.xpos
+        ys = self.ypos
+
+        nz = self.nz
+        linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+        zvals = np.linspace(self.z1, self.z2, linvalz+1)
+
+        if self.grid == 'ellipse':
+
+            #                 zpos = [zs[0]]
+            dr = self.nx
+            dtheta = self.ny/5
+
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+
+                a = np.abs(xposi2 - xposi)/2
+                b = np.abs(yposi2-yposi)/2
+                if self.centers == '':
+                    cx = (xposi + xposi2)/2
+                    cy = (yposi + yposi2)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i]
+                    cy = ys[i]
+                    cz = zs[i]
+                xpos = [cx]
+                ypos = [cy]
+                linval = math.floor((min([a, b]))/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
+
+                for t in parvals[1:]:
+                    for z in thetavals[1:]:
+                        xval = cx + t*a*np.cos(z*2*np.pi)
+                        yval = cy + t*b*np.sin(z*2*np.pi)
+                        if ((xval-cx)/a)**2 + ((yval-cy)/b)**2 <= 1:
+                            xpos = np.append(xpos, xval)
+                            ypos = np.append(ypos, yval)
+
+            for z in range(0, len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos, ypos, zpos))
+                poslist = poslist + positions
+
+            self.poslist = poslist
+
+        if self.grid == 'rect':
+            for i in range(bar, len(self.xpos)-1, 2):
+                xmax = self.xpos[i+1]
+                xmin = self.xpos[i]
+                ymax = self.ypos[i+1]
+                ymin = self.ypos[i]
+                nx = self.nx
+                ny = self.ny
+                nz = self.nz
+                a = np.abs(xmax - xmin)/2
+                b = np.abs(ymax-ymin)/2
+                if self.centers == '':
+                    cx = (xmax + xmin)/2
+                    cy = (ymax + ymin)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i]
+                    cy = ys[i]
+                    cz = zs[i]
+                linvalz = abs(math.floor((self.z2-self.z1)/(nz)))
+
+                linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                linvaly = abs(math.floor((ymax-ymin)/(ny)))
+
+                zvals = np.linspace(self.z1, self.z2, linvalz+1)
+                xpos = np.linspace(xmin, xmax, linvalx+1)
+                ypos = np.linspace(ymin, ymax, linvaly+1)
+
+                positions = []
+                for z in range(0, len(zvals)):
+                    for x in range(0, len(xpos)):
+                        for y in range(0, len(ypos)):
+                            if (((xpos[x]-cx)/a)**2 + ((ypos[y]-cy)/b)**2 <= 1):
+                                positions.append([xpos[x], ypos[y], zvals[z]])
+                            else:
+                                pass
+
+                poslist.extend(positions)
+            self.poslist = poslist
+
+        if self.grid == 'circle':
+            dr = self.nx
+            dtheta = self.ny/5
+            
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+                a = np.abs(xposi - xposi2)/2
+                b = np.abs(yposi-yposi2)/2
+                r = np.sqrt((xposi2 - xposi)**2 + (yposi -yposi2)**2)*0.5
+
+                if self.centers == '':
+                    cx = (xposi + xposi2)/2
+                    cy = (yposi + yposi2)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i]
+                    cy = ys[i]
+                    cz = zs[i]
+                xpos = [cx]
+                ypos = [cy]
+                linval = math.floor(r/dr)
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                parvals = np.linspace(0, 1, linval+1)
+
+                for t in parvals[1:]:
+                    for z in thetavals[1:]:
+                        xval = cx + t*r*np.cos(z*2*np.pi)
+                        yval = cy + t*r*np.sin(z*2*np.pi)
+                        if ((xval-cx)/a)**2 + ((yval-cy)/b)**2 <= 1:
+                            xpos = np.append(xpos, xval)
+                            ypos = np.append(ypos, yval)
+
+            for z in range(0, len(zvals)):
+                zpos = z*np.ones(len(xpos))
+                positions = list(zip(xpos, ypos, zpos))
+                poslist = poslist + positions
+
+            self.poslist = poslist
+            
+        if self.grid == 'sphere':
+
+            dr = self.nx
+            dtheta = self.ny/5
+            dphi = self.nz/5
+            zmax = max([self.z1,self.z2])
+            zmin = min([self.z1,self.z2])
+
+            for i in range(bar, len(xs)-1, 2):
+
+                xposi = xs[i]
+                xposi2 = xs[i+1]
+
+                yposi = ys[i]
+                yposi2 = ys[i+1]
+
+                
+                
+                a = np.abs(xposi - xposi2)/2
+                b = np.abs(yposi-yposi2)/2
+                r = np.sqrt((xposi2 - xposi)**2 + (yposi -yposi2)**2 + (zmax-zmin))*0.5
+
+                if self.centers == '':
+                    cx = (xposi + xposi2)/2
+                    cy = (yposi + yposi2)/2
+                    cz = (self.z1+self.z2)/2
+                else:
+                    str1 = self.centers
+                    str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                        ','), dtype=float).reshape(-1, 3)
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    cx = xs[i]
+                    cy = ys[i]
+                    cz = zs[i]
         
-    def checklist(self,arg):
+
+                linval = math.floor(r/(dr))
+
+                thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                phivals = np.linspace(0,1,math.floor(180/dphi)+1)
+                parvals = np.linspace(0, 1, linval+1)
+                positions = [[cx,cy,cz]]
+                # first start point already initialized in array.
+                for t in parvals[1:]:
+                    # Other start points are incorporated as the end points of previous segment.
+                    for z in thetavals[1:]:
+                        for p in phivals[1:]:
+                            xval = cx + t*r*np.cos(z*2*np.pi)*np.sin(p*np.pi)
+                            yval = cy + t*r*np.sin(z*2*np.pi)*np.sin(p*np.pi)
+                            zval = cz + t*r*np.cos(p*np.pi)
+                        if ((xval-cx)/a)**2 + ((yval-cy)/b)**2 > 1 or zval > zmax or zval < zmin:
+                            pass
+                        else:
+                            positions.append([xval, yval, zval])
+
+                poslist = poslist + positions
+
+            self.poslist = poslist
+         
+            
+    
+
+    def checklist(self, arg):
         # self.set_status()
         xs = [x[0] for x in self.poslist]
         ys = [x[1] for x in self.poslist]
-       
+
         barlist = self.barlist*5
 
-        for i in range(0,len(xs)):
+        for i in range(0, len(xs)):
             dist = ((xs[i])**2 + (ys[i])**2)**0.5
-            
+
             if (dist > 250):
                 arg.saveButton.setEnabled(False)
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Error")
-                msg.setInformativeText('Some designated points are outside of the machine!')
+                msg.setInformativeText(
+                    'Some designated points are outside of the machine!')
                 msg.setWindowTitle("Error")
                 msg.exec_()
                 return
-        
 
             if self.hand == 0:
-                if  (ys[i]  - 0 -  (xs[i] -250) < 0):
+                if (ys[i] - 0 - (xs[i] - 250) < 0):
                     arg.saveButton.setEnabled(False)
                     msg = QMessageBox()
                     msg.setIcon(QMessageBox.Critical)
                     msg.setText("Error")
-                    msg.setInformativeText('Some designated points are outside of reach!!')
+                    msg.setInformativeText(
+                        'Some designated points are outside of reach!!')
                     msg.setWindowTitle("Error")
                     msg.exec_()
                     return
-                elif  (ys[i] -0  + (xs[i] -250) > 0):
+                elif (ys[i] - 0 + (xs[i] - 250) > 0):
                     arg.saveButton.setEnabled(False)
                     msg = QMessageBox()
                     msg.setIcon(QMessageBox.Critical)
                     msg.setText("Error")
-                    msg.setInformativeText('Some designated points are outside of reach!')
+                    msg.setInformativeText(
+                        'Some designated points are outside of reach!')
                     msg.setWindowTitle("Error")
                     msg.exec_()
                     return
-                
-                for posgroup in barlist:  #posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
-                    if posgroup[0][0]-posgroup[1][0] ==0:
+
+                # posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
+                for posgroup in barlist:
+                    if posgroup[0][0]-posgroup[1][0] == 0:
                         m1 = 1
                     else:
-                        m1 = (posgroup[0][1]-posgroup[1][1])/(posgroup[0][0]-posgroup[1][0])
-                    m2 = (posgroup[0][1]- posgroup[2][1])/(posgroup[0][0]-posgroup[2][0])
-                    m3 = (posgroup[1][1]- posgroup[3][1])/(posgroup[1][0]-posgroup[3][0])
-         
+                        m1 = (posgroup[0][1]-posgroup[1][1]) / \
+                            (posgroup[0][0]-posgroup[1][0])
+                    m2 = (posgroup[0][1] - posgroup[2][1]) / \
+                        (posgroup[0][0]-posgroup[2][0])
+                    m3 = (posgroup[1][1] - posgroup[3][1]) / \
+                        (posgroup[1][0]-posgroup[3][0])
+
                     if (
-                        ( (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]> 0 and m1> 0) or (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]< 0 and m1< 0)) 
-                    
-                    and (
-                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]< 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]> 0) and (posgroup[0][1]>posgroup[1][1]))
-                        or
-                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]> 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]< 0) and (posgroup[0][1]<posgroup[1][1]))
-                        ) 
-                    
-                   
-                    
+                        ((ys[i] - m1*(xs[i] - posgroup[0][0]) - posgroup[0][1] > 0 and m1 > 0)
+                         or (ys[i] - m1*(xs[i] - posgroup[0][0]) - posgroup[0][1] < 0 and m1 < 0))
+
+                        and (
+                            ((ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1] < 0) and (ys[i] - m3*(
+                                xs[i] + m3*posgroup[1][0]) - posgroup[1][1] > 0) and (posgroup[0][1] > posgroup[1][1]))
+                            or
+                            ((ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1] > 0) and (ys[i] - m3*(
+                                xs[i] + m3*posgroup[1][0]) - posgroup[1][1] < 0) and (posgroup[0][1] < posgroup[1][1]))
+                        )
+
+
+
                     ):
-                            arg.saveButton.setEnabled(False)
-                            msg = QMessageBox()
-                            msg.setIcon(QMessageBox.Critical)
-                            msg.setText("Error")
-                            msg.setInformativeText('Some designated points are in No-go zone!!')
-                            msg.setWindowTitle("Error")
-                            msg.exec_()
-                            return
-                        
-                
+                        arg.saveButton.setEnabled(False)
+                        msg = QMessageBox()
+                        msg.setIcon(QMessageBox.Critical)
+                        msg.setText("Error")
+                        msg.setInformativeText(
+                            'Some designated points are in No-go zone!!')
+                        msg.setWindowTitle("Error")
+                        msg.exec_()
+                        return
+
             if self.hand == 1:
-                
-                if  (ys[i]  - 0 + (xs[i] +250) < 0):
+
+                if (ys[i] - 0 + (xs[i] + 250) < 0):
                     arg.saveButton.setEnabled(False)
                     msg = QMessageBox()
                     msg.setIcon(QMessageBox.Critical)
                     msg.setText("Error")
-                    msg.setInformativeText('Designated point is outside of reach!!')
+                    msg.setInformativeText(
+                        'Designated point is outside of reach!!')
                     msg.setWindowTitle("Error")
                     msg.exec_()
                     return
-               
-                elif  (ys[i] - 0  - (xs[i] +250) > 0):
-                    
+
+                elif (ys[i] - 0 - (xs[i] + 250) > 0):
+
                     arg.saveButton.setEnabled(False)
                     msg = QMessageBox()
                     msg.setIcon(QMessageBox.Critical)
                     msg.setText("Error")
-                    msg.setInformativeText('Designated point is outside of reach!')
+                    msg.setInformativeText(
+                        'Designated point is outside of reach!')
                     msg.setWindowTitle("Error")
                     msg.exec_()
                     return
-                
-                for posgroup in barlist:  #posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
-                    if posgroup[0][0]-posgroup[1][0] ==0:
+
+                # posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
+                for posgroup in barlist:
+                    if posgroup[0][0]-posgroup[1][0] == 0:
                         m1 = 1
                     else:
-                        m1 = (posgroup[0][1]-posgroup[1][1])/(posgroup[0][0]-posgroup[1][0])
-                    m2 = (posgroup[0][1]- posgroup[2][1])/(posgroup[0][0]-posgroup[2][0])
-                    m3 = (posgroup[1][1]- posgroup[3][1])/(posgroup[1][0]-posgroup[3][0])
-         
+                        m1 = (posgroup[0][1]-posgroup[1][1]) / \
+                            (posgroup[0][0]-posgroup[1][0])
+                    m2 = (posgroup[0][1] - posgroup[2][1]) / \
+                        (posgroup[0][0]-posgroup[2][0])
+                    m3 = (posgroup[1][1] - posgroup[3][1]) / \
+                        (posgroup[1][0]-posgroup[3][0])
+
                     if (
-                        ( (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]> 0 and m1< 0) or (ys[i] - m1*(xs[i] -posgroup[0][0]) - posgroup[0][1]< 0 and m1> 0)) 
-                    
-                    and (
-                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]< 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]> 0) and (posgroup[0][1]>posgroup[1][1]))
-                        or
-                        ( (ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1]> 0)  and (ys[i] - m3*(xs[i] + m3*posgroup[1][0]) - posgroup[1][1]< 0) and (posgroup[0][1]<posgroup[1][1]))
-                        ) 
-                    
-                   
-                    
+                        ((ys[i] - m1*(xs[i] - posgroup[0][0]) - posgroup[0][1] > 0 and m1 < 0)
+                         or (ys[i] - m1*(xs[i] - posgroup[0][0]) - posgroup[0][1] < 0 and m1 > 0))
+
+                        and (
+                            ((ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1] < 0) and (ys[i] - m3*(
+                                xs[i] + m3*posgroup[1][0]) - posgroup[1][1] > 0) and (posgroup[0][1] > posgroup[1][1]))
+                            or
+                            ((ys[i] - m2*(xs[i]-posgroup[0][0]) - posgroup[0][1] > 0) and (ys[i] - m3*(
+                                xs[i] + m3*posgroup[1][0]) - posgroup[1][1] < 0) and (posgroup[0][1] < posgroup[1][1]))
+                        )
+
+
+
                     ):
-                            arg.saveButton.setEnabled(False)
-                            msg = QMessageBox()
-                            msg.setIcon(QMessageBox.Critical)
-                            msg.setText("Error")
-                            msg.setInformativeText('Some designated points are in No-go zone!!')
-                            msg.setWindowTitle("Error")
-                            msg.exec_()
-                            return
-        
+                        arg.saveButton.setEnabled(False)
+                        msg = QMessageBox()
+                        msg.setIcon(QMessageBox.Critical)
+                        msg.setText("Error")
+                        msg.setInformativeText(
+                            'Some designated points are in No-go zone!!')
+                        msg.setWindowTitle("Error")
+                        msg.exec_()
+                        return
+
         arg.saveButton.setEnabled(True)
 
-    def coordEnter(self,arg):
+    def coordEnter(self, arg):
         bar = arg.barcoord.text()
         barlist = []
         p = QPainter(self.pixmap())
 
         if bar[0] == '(':
-            bar = np.array(bar.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+            bar = np.array(bar.replace('(', '').replace(')', '').split(
+                ','), dtype=float).reshape(-1, 3)
             xs = [5*x[0] for x in bar]
             ys = [5*x[1] for x in bar]
             zs = [5*x[2] for x in bar]
-            p.setPen(QPen(QColor(Qt.red), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(
+                QColor(Qt.red), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             p.setBrush(QBrush(QColor(Qt.red)))
 
-                
-            for i in range(0,len(xs)-1,2):
+            for i in range(0, len(xs)-1, 2):
                 xe = xs[i+1]
                 xorg = xs[i]
                 ye = ys[i+1]
                 yorg = ys[i]
-                
+
                 if self.hand == 1:
                     C = (yorg)/(xorg + 250)
-                    xvo = ( -(500*C*C) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                    yvo =   C*(xvo+250)
+                    xvo = (-(500*C*C) + np.sqrt((C*C*500)**2 -
+                           4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yvo = C*(xvo+250)
 
-                    
-                    C = ye/(xe +250)
-                    xve = ( -(C*C*500) + np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                    yve =   C*(xve+250)
-                    
-                    
-                    
-                if self.hand ==0:
+                    C = ye/(xe + 250)
+                    xve = (-(C*C*500) + np.sqrt((C*C*500)**2 -
+                           4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yve = C*(xve+250)
+
+                if self.hand == 0:
                     C = (yorg)/(xorg - 250)
-                    xvo = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                    yvo =   C*(xvo-250)
+                    xvo = ((C*C*500) - np.sqrt((C*C*500)**2 -
+                           4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yvo = C*(xvo-250)
 
-                    
                     C = (ye)/(xe - 250)
-                    xve = ( (C*C*500) - np.sqrt((C*C*500)**2 - 4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
-                    yve =   C*(xve-250) 
-                    
-                p.drawLine(QPointF(xorg+300,-yorg+300),QPointF(xvo+300,-yvo+300))
-                p.drawLine(QPointF(xe+300,-ye+300),QPointF(xve+300,-yve+300))
-              
-                p.setPen(QPen(QColor('#800000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                p.drawLine(QPointF(xorg+300,-yorg+300),QPointF(xe+300,-ye+300)) 
+                    xve = ((C*C*500) - np.sqrt((C*C*500)**2 -
+                           4*(C*C*C*C-1)*(250**2)))/(2*(C*C+1))
+                    yve = C*(xve-250)
 
-                barlist.append([(xorg,yorg,self.z1),(xe,ye,self.z1),(xvo,yvo,self.z1),(xve,yve,self.z1)])
-            
+                p.drawLine(QPointF(xorg+300, -yorg+300),
+                           QPointF(xvo+300, -yvo+300))
+                p.drawLine(QPointF(xe+300, -ye+300),
+                           QPointF(xve+300, -yve+300))
+
+                p.setPen(QPen(QColor(
+                    '#800000'), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                p.drawLine(QPointF(xorg+300, -yorg+300),
+                           QPointF(xe+300, -ye+300))
+
+                barlist.append([(xorg, yorg, self.z1), (xe, ye, self.z1),
+                               (xvo, yvo, self.z1), (xve, yve, self.z1)])
+
                 barlist = np.array(barlist)/5
             self.barlist = barlist
-            
 
-            
-            
         if self.mode == 'polyline':
-            res = min(self.nx , self.ny , self.nz)
+            res = min(self.nx, self.ny, self.nz)
             str1 = arg.ps.text()
-            #split the string by , in order to get an array
-            str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+            # split the string by , in order to get an array
+            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                ','), dtype=float).reshape(-1, 3)
             try:
 
                 xs = [5*x[0] for x in str1]
@@ -1202,13 +1708,15 @@ class Canvas(QLabel):
                 self.xpos = xs
                 self.ypos = ys
                 self.zpos = zs
-                p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                p.setPen(QPen(
+                    QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
-                for i in range(0,len(xs)-1):
-                    p.drawLine(QPointF(xs[i]+300,-ys[i]+300),QPointF(xs[i+1]+300,-ys[i+1]+300))
+                for i in range(0, len(xs)-1):
+                    p.drawLine(QPointF(xs[i]+300, -ys[i]+300),
+                               QPointF(xs[i+1]+300, -ys[i+1]+300))
 
-                for i in range(0,len(xs)-1):
+                for i in range(0, len(xs)-1):
 
                     xposi = xs[i]
                     xposi2 = xs[i+1]
@@ -1217,37 +1725,36 @@ class Canvas(QLabel):
                     yposi2 = ys[i+1]
 
                     zposi = zs[i]
-                    zposi2 =zs[i+1]
+                    zposi2 = zs[i+1]
 
-                    length = ((xposi2-xposi)**2 + (yposi2-yposi)**2 + (zposi2-zposi)**2)**0.5
+                    length = ((xposi2-xposi)**2 + (yposi2-yposi)
+                              ** 2 + (zposi2-zposi)**2)**0.5
                     linval = math.floor(length/(res))
 
-                    parvals = np.linspace(0,1,linval+1)
+                    parvals = np.linspace(0, 1, linval+1)
 
                     for t in parvals[1:]:
 
                         xval = xposi + t*(xposi2 - xposi)
                         yval = yposi + t*(yposi2 - yposi)
                         zval = zposi + t*(zposi2 - zposi)
-                        xpos = np.append(xpos,xval)
-                        ypos = np.append(ypos,yval)
-                        zpos = np.append(zpos,zval)
+                        xpos = np.append(xpos, xval)
+                        ypos = np.append(ypos, yval)
+                        zpos = np.append(zpos, zval)
 
-
-
-
-
-                positions = list(zip(xpos,ypos,zpos))
+                positions = list(zip(xpos, ypos, zpos))
                 self.poslist = positions
 
             except ValueError:
-                QMessageBox.about(self, "Error", "Position should be valid numbers.")
+                QMessageBox.about(
+                    self, "Error", "Position should be valid numbers.")
 
         elif self.mode == 'line':
-            res = min(self.nx , self.ny , self.nz)
+            res = min(self.nx, self.ny, self.nz)
             str1 = arg.ps.text()
-            #split the string by , in order to get an array
-            str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+            # split the string by , in order to get an array
+            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                ','), dtype=float).reshape(-1, 3)
             try:
 
                 xs = [5*x[0] for x in str1]
@@ -1259,14 +1766,15 @@ class Canvas(QLabel):
                 self.xpos = xs
                 self.ypos = ys
                 self.zpos = zs
-                p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                p.setPen(QPen(
+                    QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
 
-                for i in range(0,len(xs)-1,2):
-                    p.drawLine(QPointF(xs[i]+300,-ys[i]+300),QPointF(300+xs[i+1],-ys[i+1]+300))
+                for i in range(0, len(xs)-1, 2):
+                    p.drawLine(QPointF(xs[i]+300, -ys[i]+300),
+                               QPointF(300+xs[i+1], -ys[i+1]+300))
 
-
-                for i in range(0,len(xs)-1,2):
+                for i in range(0, len(xs)-1, 2):
 
                     xposi = xs[i]
                     xposi2 = xs[i+1]
@@ -1275,92 +1783,95 @@ class Canvas(QLabel):
                     yposi2 = ys[i+1]
 
                     zposi = zs[i]
-                    zposi2 =zs[i+1]
+                    zposi2 = zs[i+1]
 
-                    length = ((xposi2-xposi)**2 + (yposi2-yposi)**2 + (zposi2-zposi)**2)**0.5
+                    length = ((xposi2-xposi)**2 + (yposi2-yposi)
+                              ** 2 + (zposi2-zposi)**2)**0.5
                     linval = math.floor(length/(res))
 
-                    parvals = np.linspace(0,1,linval+1)
+                    parvals = np.linspace(0, 1, linval+1)
 
                     for t in parvals[1:]:
 
                         xval = xposi + t*(xposi2 - xposi)
                         yval = yposi + t*(yposi2 - yposi)
                         zval = zposi + t*(zposi2 - zposi)
-                        xpos = np.append(xpos,xval)
-                        ypos = np.append(ypos,yval)
-                        zpos = np.append(zpos,zval)
+                        xpos = np.append(xpos, xval)
+                        ypos = np.append(ypos, yval)
+                        zpos = np.append(zpos, zval)
 
-
-                positions = list(zip(xpos,ypos,zpos))
+                positions = list(zip(xpos, ypos, zpos))
                 self.poslist = positions
 
             except ValueError:
-                QMessageBox.about(self, "Error", "Position should be valid numbers.")
+                QMessageBox.about(
+                    self, "Error", "Position should be valid numbers.")
 
         elif self.mode == 'rect':
 
-            # res = min(self.nx , self.ny , self.nz)
-            str1 = arg.ps.text()
-            #split the string by , in order to get an array
-            str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
-            try:
-
-                xs = [5*x[0] for x in str1]
-                ys = [5*x[1] for x in str1]
-                zs = [5*x[2] for x in str1]
-                self.xpos = xs
-                self.ypos = ys
-                self.zpos = zs
-                nx = self.nx
-                ny = self.ny
-                nz = self.nz
-                p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                p.setBrush(QBrush(QColor(Qt.black)))
-                for i in range(0,len(xs)-1,2):
-                    p.drawRect(QRectF(xs[i]+300,-ys[i]+300,xs[i+1]-xs[i],-ys[i+1]+ys[i]))
-
-                poslist = []
-                for i in range(0,len(self.xpos)-1,2):
-                    xmax = self.xpos[i+1]
-                    xmin = self.xpos[i]
-                    ymax = self.ypos[i+1]
-                    ymin = self.ypos[i]
-                    zmax = zs[i+1]
-                    zmin = zs[i]
-
-
-                    linvalz = abs(math.floor((zmax-zmin)/(nz)))
-
-                    linvalx = abs(math.floor((xmax-xmin)/(nx)))
-                    linvaly = abs(math.floor((ymax-ymin)/(ny)))
-
-                    zvals = np.linspace(zmin,zmax,linvalz+1)
-                    xpos = np.linspace(xmin,xmax,linvalx+1)
-                    ypos = np.linspace(ymin,ymax,linvaly+1)
-
-                    positions = []
-                    for z in range(0,len(zvals)):
-                        for x in range(0,len(xpos)):
-                            for y in range(0,len(ypos)):
-                                positions.append(  [ xpos[x],ypos[y],zvals[z] ]  )
-
-
-                    poslist.extend(positions)
-                    # print(poslist)
-                    self.poslist = poslist
-                    
-            except ValueError:
-                QMessageBox.about(self, "Error", "Position should be valid numbers.")
-
-                    
-        elif self.mode == 'circle':
-                poslist = []
-                bar = self.bar
-                
+            if self.grid == 'rect':
+                # res = min(self.nx , self.ny , self.nz)
                 str1 = arg.ps.text()
-                #split the string by , in order to get an array
-                str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    nx = self.nx
+                    ny = self.ny
+                    nz = self.nz
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+                    for i in range(0, len(xs)-1, 2):
+                        p.drawRect(
+                            QRectF(xs[i]+300, -ys[i]+300, xs[i+1]-xs[i], -ys[i+1]+ys[i]))
+
+                        poslist = []
+                        for i in range(0, len(self.xpos)-1, 2):
+                            xmax = self.xpos[i+1]
+                            xmin = self.xpos[i]
+                            ymax = self.ypos[i+1]
+                            ymin = self.ypos[i]
+                            zmax = zs[i+1]
+                            zmin = zs[i]
+
+                            linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                            linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                            linvaly = abs(math.floor((ymax-ymin)/(ny)))
+
+                            zvals = np.linspace(zmin, zmax, linvalz+1)
+                            xpos = np.linspace(xmin, xmax, linvalx+1)
+                            ypos = np.linspace(ymin, ymax, linvaly+1)
+
+                            positions = []
+                            for z in range(0, len(zvals)):
+                                for x in range(0, len(xpos)):
+                                    for y in range(0, len(ypos)):
+                                        positions.append(
+                                            [xpos[x], ypos[y], zvals[z]])
+
+                        poslist.extend(positions)
+                        # print(poslist)
+                        self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+
+            if self.grid == 'circle':
+                # res = min(self.nx , self.ny , self.nz)
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
                 try:
 
                     xs = [5*x[0] for x in str1]
@@ -1370,72 +1881,353 @@ class Canvas(QLabel):
                     self.ypos = ys
                     self.zpos = zs
                     dr = self.nx
-                    dtheta = self.ny
+                    dtheta = self.ny/5
                     nz = self.nz
-                    p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     p.setBrush(QBrush(QColor(Qt.black)))
 
-                    
+                    xpos = []
+                    ypos = []
+                    poslist = []
+                    for i in range(0, len(self.xpos)-1, 2):
+                        p.drawRect(
+                            QRectF(xs[i]+300, -ys[i]+300, xs[i+1]-xs[i], -ys[i+1]+ys[i]))
+                        xmax = max([self.xpos[i+1], self.xpos[i]])
+                        xmin = min([self.xpos[i+1], self.xpos[i]])
+                        ymax = max([self.ypos[i+1], self.ypos[i]])
+                        ymin = min([self.ypos[i+1], self.ypos[i]])
+                        zmax = max([self.zpos[i+1], self.zpos[i]])
+                        zmin = min([self.zpos[i+1], self.zpos[i]])
+
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                        if self.centers == '':
+                            cx = (xmax+xmin)/2
+                            cy = (ymax+ymin)/2
+                            cz = (zmax+zmin)/2
+                        else:
+                            str1 = self.centers
+                            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                ','), dtype=float).reshape(-1, 3)
+                            xs1 = [5*x[0] for x in str1]
+                            ys1 = [5*x[1] for x in str1]
+                            zs1 = [5*x[2] for x in str1]
+                            cx = (xs1[i] + xs1[i+1])/2
+                            cy = (ys1[i] + ys1[i+1])/2
+                            cz = (zs1[i] + zs1[i+1])/2
+                        # NEED TO RECALCULATE POINT GENERATING PARAMETERS TO GET APPROPRIATE ONES WITHIN THE REGION.
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
+
+                        r = 0.5*(np.sqrt((xmax-xmin)**2 + (ymax-ymin)**2))
+
+                        linval = math.floor(r/(dr))
+
+                        thetavals = np.linspace(
+                            0, 1, math.floor(360/dtheta) + 1)
+                        parvals = np.linspace(0, 1, linval+1)
+                        positions = []
+                        for t in parvals[1:]:
+                            for z in thetavals[1:]:
+                                xval = cx + t*r*np.cos(z*2*np.pi)
+                                yval = cy + t*r*np.sin(z*2*np.pi)
+
+                                if (xval > xmax) or xval < xmin or yval > ymax or yval < ymin:
+                                    pass
+                                else:
+                                    xpos = np.append(xpos, xval)
+                                    ypos = np.append(ypos, yval)
+
+                        for z in range(0, len(zvals)):
+                            zpos = z*np.ones(len(xpos))
+                            positions = list(zip(xpos, ypos, zpos))
+                            poslist = poslist + positions
+                        self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+      ###############NOT IMPLEMENTED$$$$$$$$$              
+            if self.grid == 'ellipse':
+                # res = min(self.nx , self.ny , self.nz)
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny/5
+                    nz = self.nz
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    xpos = []
+                    ypos = []
+                    poslist = []
+                    for i in range(0, len(self.xpos)-1, 2):
+                        p.drawRect(
+                            QRectF(xs[i]+300, -ys[i]+300, xs[i+1]-xs[i], -ys[i+1]+ys[i]))
+                       
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+
+
+            if self.grid == 'sphere':
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny/5
+                    dphi = self.nz/5
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    poslist = []
+                    for i in range(0, len(self.xpos)-1, 2):
+                        p.drawRect(
+                            QRectF(xs[i]+300, -ys[i]+300, xs[i+1]-xs[i], -ys[i+1]+ys[i]))
+                        xmax = max([self.xpos[i+1], self.xpos[i]])
+                        xmin = min([self.xpos[i+1], self.xpos[i]])
+                        ymax = max([self.ypos[i+1], self.ypos[i]])
+                        ymin = min([self.ypos[i+1], self.ypos[i]])
+                        zmax = max([self.zpos[i+1], self.zpos[i]])
+                        zmin = min([self.zpos[i+1], self.zpos[i]])
+
+                        if self.centers == '':
+                            cx = (xmax+xmin)/2
+                            cy = (ymax+ymin)/2
+                            cz = (zmax+zmin)/2
+                        else:
+                            str1 = self.centers
+                            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                ','), dtype=float).reshape(-1, 3)
+                            xs1 = [5*x[0] for x in str1]
+                            ys1 = [5*x[1] for x in str1]
+                            zs1 = [5*x[2] for x in str1]
+                            cx = (xs1[i] + xs1[i+1])/2
+                            cy = (ys1[i] + ys1[i+1])/2
+                            cz = (zs1[i] + zs1[i+1])/2
+                        # NEED TO RECALCULATE POINT GENERATING PARAMETERS TO GET APPROPRIATE ONES WITHIN THE REGION.
+
+                        r = (np.sqrt((xmax-xmin)**2 +
+                             (ymax-ymin)**2 + (zmax-zmin)**2))
+
+                        linval = math.floor(r/(dr))
+
+                        thetavals = np.linspace(
+                            0, 1, math.floor(360/dtheta) + 1)
+                        phivals = np.linspace(0, 1, math.floor(180/dphi) + 1)
+                        parvals = np.linspace(0, 1, linval+1)
+                        positions = [[cx,cy,cz]]
+                        for t in parvals[1:]:
+                            for z in thetavals[1:]:
+                                for p in phivals[1:]:
+                                    xval = cx + t*r * \
+                                        np.cos(z*2*np.pi)*np.sin(p*np.pi)
+                                    yval = cy + t*r * \
+                                        np.sin(z*2*np.pi)*np.sin(p*np.pi)
+                                    zval = cz + t*r*np.cos(p*np.pi)
+                                    if (xval > xmax) or xval < xmin or yval > ymax or yval < ymin or zval > zmax or zval < zmin:
+                                        pass
+                                    else:
+                                        positions.append([xval, yval, zval])
+
+                        poslist.extend(positions)
+
+                    self.poslist = poslist
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+
+        elif self.mode == 'circle':
+
+            if self.grid == 'circle':
+                poslist = []
+                bar = self.bar
+
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny/5
+                    nz = self.nz
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
                     poslist = []
                     xpos = [xs[0]]
                     ypos = [ys[0]]
-                    
 
-
-                    for i in range(0,len(self.xpos)-1,2):
+                    for i in range(0, len(self.xpos)-1, 2):
 
                         xposi = xs[i]
                         xposi2 = xs[i+1]
-                        
+
                         yposi = ys[i]
                         yposi2 = ys[i+1]
-                        
+
                         zmax = zs[i+1]
                         zmin = zs[i]
                         linvalz = abs(math.floor((zmax-zmin)/(nz)))
 
-                        zvals = np.linspace(zmin,zmax,linvalz+1)
-                        r = np.sqrt( (xposi -xposi2)**2 + (yposi-yposi2)**2   )
-                        # zposi = zs[i]
-                        # zposi2 =zs[i+1]
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
+                        r = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+
                         dr = self.nx
-                        dtheta = self.ny
-                        
-                        p.drawEllipse( QPointF(xs[i]+300,-ys[i]+300),r,r)
+                        dtheta = self.ny/5
+
+                        p.drawEllipse(QPointF(xs[i]+300, -ys[i]+300), r, r)
                         linval = math.floor(r/(dr))
-                        
-                        thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
-                        parvals = np.linspace(0,1,linval+1)
-                        
-                        for t in parvals[1:]: 
-                            for z in thetavals:
-                                xval = xposi + t*r*np.cos(z)
-                                yval = yposi + t*r*np.sin(z)
 
-                                xpos = np.append(xpos,xval)
-                                ypos = np.append(ypos,yval)
+                        thetavals = np.linspace(
+                            0, 1, math.floor(360/dtheta) + 1)
+                        parvals = np.linspace(0, 1, linval+1)
 
+                        for t in parvals[1:]:
+                            for z in thetavals[1:]:
+                                xval = xposi + t*r*np.cos(z*2*np.pi)
+                                yval = yposi + t*r*np.sin(z*2*np.pi)
 
-                    for z in range(0,len(zvals)):
+                                xpos = np.append(xpos, xval)
+                                ypos = np.append(ypos, yval)
+
+                    for z in range(0, len(zvals)):
                         zpos = z*np.ones(len(xpos))
-                        positions = list(zip(xpos,ypos,zpos))
+                        positions = list(zip(xpos, ypos, zpos))
                         poslist = poslist + positions
-
-
-
 
                     self.poslist = poslist
 
                 except ValueError:
-                 QMessageBox.about(self, "Error", "Position should be valid numbers.")
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
 
-        elif self.mode == 'ellipse':
+            if self.grid == 'rect':
                 poslist = []
                 bar = self.bar
-                
+
                 str1 = arg.ps.text()
-                #split the string by , in order to get an array
-                str1 = np.array(str1.replace('(','').replace(')','').split(','),dtype=float).reshape(-1,3)
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    nx = self.nx
+                    ny = self.ny
+                    nz = self.nz
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    poslist = []
+                    xpos = []
+                    ypos = []
+                    zpos = []
+
+                    for i in range(0, len(self.xpos)-1, 2):
+
+                        xposi = xs[i]
+                        xposi2 = xs[i+1]
+
+                        yposi = ys[i]
+                        yposi2 = ys[i+1]
+
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+
+                        if self.centers == '':
+                            cx = xposi
+                            cy = yposi
+                            cz = (zmax+zmin)/2
+                        else:
+                            str1 = self.centers
+                            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                ','), dtype=float).reshape(-1, 3)
+                            xs = [5*x[0] for x in str1]
+                            ys = [5*x[1] for x in str1]
+                            zs = [5*x[2] for x in str1]
+                            cx = xs[i]
+                            cy = ys[i]
+                            cz = zs[i]
+
+                        r = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+                        xmax = cx + r
+                        xmin = cx - r
+                        ymax = cy + r
+                        ymin = cy - r
+
+                        p.drawEllipse(QPointF(xs[i]+300, -ys[i]+300), r, r)
+
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                        linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                        linvaly = abs(math.floor((ymax-ymin)/(ny)))
+
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
+                        xvals = np.linspace(xmin, xmax, linvalx+1)
+                        yvals = np.linspace(ymin, ymax, linvaly+1)
+
+                        positions = []
+                        for z in range(0, len(zvals)):
+                            for x in range(0, len(xvals)):
+                                for y in range(0, len(yvals)):
+                                    if (xvals[x] - cx)**2 + (yvals[y] - cy)**2 <= r**2 and zvals[z] <= zmax and zvals[z] >= zmin:
+                                        positions.append(
+                                            [xvals[x], yvals[y], zvals[z]])
+                                    else:
+                                        pass
+
+                    poslist.extend(positions)
+                    self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+
+            if self.grid == 'sphere':
+                poslist = []
+                bar = self.bar
+
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
                 try:
 
                     xs = [5*x[0] for x in str1]
@@ -1445,68 +2237,356 @@ class Canvas(QLabel):
                     self.ypos = ys
                     self.zpos = zs
                     dr = self.nx
-                    dtheta = self.ny
-                    nz = self.nz
-                    p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    dtheta = self.ny/5
+                    dphi = self.nz/5
+                   
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     p.setBrush(QBrush(QColor(Qt.black)))
 
-                    
                     poslist = []
-                    xpos = [xs[0]]
-                    ypos = [ys[0]]
                     
-
-
-                    for i in range(0,len(self.xpos)-1,2):
+                    for i in range(0, len(self.xpos)-1, 2):
 
                         xposi = xs[i]
                         xposi2 = xs[i+1]
-                        
+
                         yposi = ys[i]
                         yposi2 = ys[i+1]
-                        
+
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+
+                        if self.centers == '':
+                            cx = xposi
+                            cy = yposi
+                            cz = (zmax+zmin)/2
+                        else:
+                            str1 = self.centers
+                            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                ','), dtype=float).reshape(-1, 3)
+                            xs = [5*x[0] for x in str1]
+                            ys = [5*x[1] for x in str1]
+                            zs = [5*x[2] for x in str1]
+                            cx = xs[i]
+                            cy = ys[i]
+                            cz = zs[i]
+
+                        rc = np.sqrt((xposi - xposi2)**2 + (yposi-yposi2)**2)
+                        xmax = cx + rc
+                        xmin = cx - rc
+                        ymax = cy + rc
+                        ymin = cy - rc
+
+                        p.drawEllipse(QPointF(xs[i]+300, -ys[i]+300), rc, rc)
+
+                        r = 0.5*(np.sqrt((xmax-xmin)**2 + (ymax-ymin)**2) + (zmax-zmin)**2)
+
+                        linval = math.floor(r/(dr))
+
+                        thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                        phivals = np.linspace(0,1,math.floor(180/dphi)+1)
+                        parvals = np.linspace(0, 1, linval+1)
+                        positions = [[cx,cy,cz]]
+                        # first start point already initialized in array.
+                        for t in parvals[1:]:
+                            # Other start points are incorporated as the end points of previous segment.
+                            for z in thetavals[1:]:
+                                for p in phivals[1:]:
+                                    xval = cx + t*r*np.cos(z*2*np.pi)*np.sin(p*np.pi)
+                                    yval = cy + t*r*np.sin(z*2*np.pi)*np.sin(p*np.pi)
+                                    zval = cz + t*r*np.cos(p*np.pi)
+                                if (xval-cx)**2 + (yval-cy)**2 > rc**2 or zval > zmax or zval < zmin:
+                                    pass
+                                else:
+                                    positions.append([xval, yval, zval])
+
+                        poslist = poslist + positions
+
+                    self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+        
+        
+        
+        
+        elif self.mode == 'ellipse':
+            
+            if self.grid == 'ellipse':
+                poslist = []
+                bar = self.bar
+
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    dr = self.nx
+                    dtheta = self.ny/5
+                    nz = self.nz
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+
+                    poslist = []
+                    xpos = [xs[0]]
+                    ypos = [ys[0]]
+
+                    for i in range(0, len(self.xpos)-1, 2):
+
+                        xposi = xs[i]
+                        xposi2 = xs[i+1]
+
+                        yposi = ys[i]
+                        yposi2 = ys[i+1]
+
                         zmax = zs[i+1]
                         zmin = zs[i]
                         linvalz = abs(math.floor((zmax-zmin)/(nz)))
 
-                        zvals = np.linspace(zmin,zmax,linvalz+1)
-                        a = np.abs(xposi2-xposi)
-                        b = np.abs(yposi2-yposi)
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
+                        a = np.abs(xposi2-xposi)/2
+                        b = np.abs(yposi2-yposi)/2
                         # zposi = zs[i]
                         # zposi2 =zs[i+1]
 
                         cx = (xposi + xposi2)/2
                         cy = (yposi + yposi2)/2
-                        
-                        p.drawEllipse( QRect(  QPoint(xposi+300,-yposi+300), QPoint(xposi2+300,-yposi2+300) ))
-                        linval = math.floor((min([a,b]))/(dr))
-                        
-                        thetavals = np.linspace(0,2*np.pi, math.floor(2*np.pi/dtheta) + 1)
-                        parvals = np.linspace(0,1,linval+1)
-                        
-                        for t in parvals[1:]: 
-                            for z in thetavals:
-                                xval = cx + t*a*np.cos(z)
-                                yval = cy + t*b*np.sin(z)
 
-                                xpos = np.append(xpos,xval)
-                                ypos = np.append(ypos,yval)
+                        p.drawEllipse(
+                            QRect(QPoint(xposi+300, -yposi+300), QPoint(xposi2+300, -yposi2+300)))
+                        linval = math.floor((min([a, b]))/(dr))
 
+                        thetavals = np.linspace(
+                            0, 1, math.floor(360/dtheta) + 1)
+                        parvals = np.linspace(0, 1, linval+1)
 
-                    for z in range(0,len(zvals)):
+                        for t in parvals[1:]:
+                            for z in thetavals[1:]:
+                                xval = cx + t*a*np.cos(z*2*np.pi)
+                                yval = cy + t*b*np.sin(z*2*np.pi)
+
+                                xpos = np.append(xpos, xval)
+                                ypos = np.append(ypos, yval)
+
+                    for z in range(0, len(zvals)):
                         zpos = z*np.ones(len(xpos))
-                        positions = list(zip(xpos,ypos,zpos))
+                        positions = list(zip(xpos, ypos, zpos))
                         poslist = poslist + positions
-
-
-
 
                     self.poslist = poslist
 
                 except ValueError:
-                 QMessageBox.about(self, "Error", "Position should be valid numbers.")
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+                    
+            if self.grid == 'rect':
+                poslist = []
+                bar = self.bar
+
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+                    nx = self.nx
+                    ny = self.ny 
+                    nz = self.nz
+                    poslist = []
+                  
+
+                    for i in range(0, len(self.xpos)-1, 2):
+
+                        xmax = self.xpos[i+1]
+                        xmin = self.xpos[i]
+                        ymax = self.ypos[i+1]
+                        ymin = self.ypos[i]
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
 
 
+                        cx = (xposi + xposi2)/2
+                        cy = (yposi + yposi2)/2
+
+                        p.drawEllipse(
+                            QRect(QPoint(xposi+300, -yposi+300), QPoint(xposi2+300, -yposi2+300)))
+                       
+                        nx = self.nx
+                        ny = self.ny
+                        nz = self.nz
+                        a = np.abs(xmax - xmin)/2
+                        b = np.abs(ymax-  ymin)/2
+                        if self.centers == '':
+                                cx = (xmax + xmin)/2
+                                cy = (ymax + ymin)/2
+                        else:
+                                str1 = self.centers
+                                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                    ','), dtype=float).reshape(-1, 3)
+                                xs = [5*x[0] for x in str1]
+                                ys = [5*x[1] for x in str1]
+                                zs = [5*x[2] for x in str1]
+                                cx = xs[i]
+                                cy = ys[i]
+                                cz = zs[i]
+
+                        linvalx = abs(math.floor((xmax-xmin)/(nx)))
+                        linvaly = abs(math.floor((ymax-ymin)/(ny)))
+                        xpos = np.linspace(xmin, xmax, linvalx+1)
+                        ypos = np.linspace(ymin, ymax, linvaly+1)
+                        positions = []
+                        for z in range(0, len(zvals)):
+                                for x in range(0, len(xpos)):
+                                    for y in range(0, len(ypos)):
+                                        if (((xpos[x]-cx)/a)**2 + ((ypos[y]-cy)/b)**2 <= 1):
+                                            positions.append([xpos[x], ypos[y], zvals[z]])
+                                        else:
+                                            pass
+
+                        poslist.extend(positions)
+                    self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+                    
+            if self.grid == 'circle':
+                poslist = []
+                bar = self.bar
+
+                str1 = arg.ps.text()
+                # split the string by , in order to get an array
+                str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                    ','), dtype=float).reshape(-1, 3)
+                try:
+
+                    xs = [5*x[0] for x in str1]
+                    ys = [5*x[1] for x in str1]
+                    zs = [5*x[2] for x in str1]
+                    self.xpos = xs
+                    self.ypos = ys
+                    self.zpos = zs
+                    p.setPen(QPen(
+                        QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    p.setBrush(QBrush(QColor(Qt.black)))
+                    nx = self.nx
+                    ny = self.ny 
+                    nz = self.nz
+                    poslist = []
+                  
+
+                    for i in range(0, len(self.xpos)-1, 2):
+
+                        xmax = self.xpos[i+1]
+                        xmin = self.xpos[i]
+                        ymax = self.ypos[i+1]
+                        ymin = self.ypos[i]
+                        zmax = zs[i+1]
+                        zmin = zs[i]
+                        linvalz = abs(math.floor((zmax-zmin)/(nz)))
+
+                        zvals = np.linspace(zmin, zmax, linvalz+1)
+                        p.drawEllipse(
+                            QRect(QPoint(xposi+300, -yposi+300), QPoint(xposi2+300, -yposi2+300)))
+                       
+                        cx = (xposi + xposi2)/2
+                        cy = (yposi + yposi2)/2
+
+                        
+                        nx = self.nx
+                        ny = self.ny
+                        nz = self.nz
+                        a = np.abs(xmax - xmin)/2
+                        b = np.abs(ymax-  ymin)/2
+                        r = np.sqrt((xposi2 - xposi)**2 + (yposi -yposi2)**2)*0.5
+
+                        if self.centers == '':
+                            cx = (xposi + xposi2)/2
+                            cy = (yposi + yposi2)/2
+                        else:
+                            str1 = self.centers
+                            str1 = np.array(str1.replace('(', '').replace(')', '').split(
+                                ','), dtype=float).reshape(-1, 3)
+                            xs = [5*x[0] for x in str1]
+                            ys = [5*x[1] for x in str1]
+                            zs = [5*x[2] for x in str1]
+                            cx = xs[i]
+                            cy = ys[i]
+                            cz = zs[i]
+                        xpos = [cx]
+                        ypos = [cy]
+                        linval = math.floor(r/dr)
+
+                        thetavals = np.linspace(0, 1, math.floor(360/dtheta) + 1)
+                        parvals = np.linspace(0, 1, linval+1)
+
+                        for t in parvals[1:]:
+                            for z in thetavals[1:]:
+                                xval = cx + t*r*np.cos(z*2*np.pi)
+                                yval = cy + t*r*np.sin(z*2*np.pi)
+                                if ((xval-cx)/a)**2 + ((yval-cy)/b)**2 <= 1:
+                                    xpos = np.append(xpos, xval)
+                                    ypos = np.append(ypos, yval)
+
+                    for z in range(0, len(zvals)):
+                        zpos = z*np.ones(len(xpos))
+                        positions = list(zip(xpos, ypos, zpos))
+                        poslist = poslist + positions
+
+                    self.poslist = poslist
+
+                except ValueError:
+                    QMessageBox.about(
+                        self, "Error", "Position should be valid numbers.")
+
+    def enter(self, grid):
+
+        if grid == 'circle':
+            text, ok = QInputDialog.getText(
+                self, 'Grid Set-up', 'Enter custom-center(s), or leave empty for default gridding (Centers of defined regions)')
+            if ok:
+                self.centers = str(text)
+
+        if grid == 'rect':
+            text, ok = QInputDialog.getText(
+                self, 'Grid Set-up', 'Enter custom-center(s), or leave empty for default gridding (Centers of defined regions)')
+            if ok:
+                self.centers = str(text)
+                
+                
+        if grid == 'ellipse':
+            text, ok = QInputDialog.getText(
+                self, 'Grid Set-up', 'Enter custom-center(s), or leave empty for default gridding (Centers of defined regions)')
+            if ok:
+                self.centers = str(text)
+                
+        if grid == 'sphere':
+            text, ok = QInputDialog.getText(
+                self, 'Grid Set-up', 'Enter custom-center(s), or leave empty for default gridding (Centers of defined regions)')
+            if ok:
+                self.centers = str(text)
 
     def save_file(self):
 
@@ -1516,14 +2596,17 @@ class Canvas(QLabel):
                 file.write(s+'\n')
 
         with open("res.txt", 'w') as file:
-            file.write(str(self.nx/5)+ ' '+ str(self.ny/5)+' '+ str(self.nz/5))
-           
-        Dict = {'mode': self.mode , 'xres': self.nx, 'yres': self.ny , 'zres': self.nz,  'xs': self.xpos, 'ys': self.ypos, 'zs': self.zpos, 'bar': self.barlist , hand: self.hand}
+            file.write(str(self.nx/5) + ' ' +
+                       str(self.ny/5)+' ' + str(self.nz/5))
+
+        Dict = {'mode': self.mode, 'xres': self.nx, 'yres': self.ny, 'zres': self.nz,
+                'xs': self.xpos, 'ys': self.ypos, 'zs': self.zpos, 'bar': self.barlist, hand: self.hand}
         toml_string = toml.dumps(Dict)  # Output to a string
 
         output_file_name = "output.toml"
         with open(output_file_name, "w") as toml_file:
             toml.dump(Dict, toml_file)
+
 
 class MainWindow(QMainWindow, Ui_MainWindow):
 
@@ -1544,10 +2627,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.canvas2 = MplCanvas()
         self.horizontalLayout_3.addWidget(self.canvas2)
 
-
-
-
-
         # Setup the mode buttons
         mode_group = QButtonGroup(self)
         mode_group.setExclusive(True)
@@ -1557,12 +2636,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             btn.pressed.connect(lambda mode=mode: self.canvas.set_mode(mode))
             mode_group.addButton(btn)
 
-        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
-        self.clearButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
+        # Setup the grid buttons
+        grid_group = QButtonGroup(self)
+        grid_group.setExclusive(True)
+
+        for grid in GRIDS:
+            btn = getattr(self, '%sgButton' % grid)
+            btn.pressed.connect(lambda grid=grid: [
+                                self.canvas.set_grid(grid), self.canvas.enter(grid)])
+            grid_group.addButton(btn)
+
+        self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self), self.update_graph(
+            self.canvas.poslist, self.canvas.nx, self.canvas.ny, self.canvas.barlist, self.canvas.mode)])
+        self.clearButton.clicked.connect(lambda: [self.canvas.reset(), self.canvas.resetpos(self), self.update_graph(
+            self.canvas.poslist, self.canvas.nx, self.canvas.ny, self.canvas.barlist, self.canvas.mode)])
         self.saveButton.clicked.connect(lambda: self.canvas.save_file())
         self.verifyButton.clicked.connect(lambda: self.canvas.checklist(self))
-        self.EntButton.clicked.connect(lambda: [self.canvas.reset(),self.canvas.resetpos(self), self.canvas.coordEnter(self),self.update_graph(self.canvas.poslist,self.canvas.nx,self.canvas.ny,self.canvas.barlist,self.canvas.mode)])
-        self.hand.clicked.connect(lambda: [self.canvas.set_hand() ,self.canvas.resetpos(self)])
+        self.EntButton.clicked.connect(lambda: [self.canvas.reset(), self.canvas.resetpos(self), self.canvas.coordEnter(
+            self), self.update_graph(self.canvas.poslist, self.canvas.nx, self.canvas.ny, self.canvas.barlist, self.canvas.mode)])
+        self.hand.clicked.connect(
+            lambda: [self.canvas.set_hand(), self.canvas.resetpos(self)])
 
         # Initialize animation timer.
         self.timer = QTimer()
@@ -1576,67 +2669,55 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.z1.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.z2.editingFinished.connect(lambda: self.canvas.set_status(self))
-        self.canvas.move.connect(lambda: self.updateCoord(self.canvas.cx,self.canvas.cy,self.canvas.poslist,self.canvas.bar))
-
-
-
+        self.canvas.move.connect(lambda: self.updateCoord(
+            self.canvas.cx, self.canvas.cy, self.canvas.poslist, self.canvas.bar))
 
         sizeicon = QLabel()
-        sizeicon.setPixmap(QPixmap(os.path.join('images', 'border-weight.png')))
-
+        sizeicon.setPixmap(
+            QPixmap(os.path.join('images', 'border-weight.png')))
 
         self.show()
 
-    def update_graph(self,poslist,nx,ny,barlist,arg):
+    def update_graph(self, poslist, nx, ny, barlist, arg):
 
+        self.horizontalLayout_3.removeWidget(self.canvas2)
 
-            self.horizontalLayout_3.removeWidget(self.canvas2)
+        self.canvas2 = MplCanvas()
+        self.canvas2.ax.set_xlim3d(-100, 100)
+        self.canvas2.ax.set_ylim3d(-100, 100)
+        self.canvas2.ax.set_zlim3d(-5, 5)
 
-            self.canvas2 = MplCanvas()
-            self.canvas2.ax.set_xlim3d(-100,100)
-            self.canvas2.ax.set_ylim3d(-100,100)
-            self.canvas2.ax.set_zlim3d(-5,5)
+        xs = [x[0]/5 for x in poslist]
+        ys = [x[1]/5 for x in poslist]
+        zs = [x[2]/5 for x in poslist]
+        if arg == 'circle':
+            size = nx/10
+        else:
+            size = min([nx/5, ny/5])
 
-            xs = [x[0]/5 for x in poslist]
-            ys = [x[1]/5 for x in poslist]
-            zs = [x[2]/5 for x in poslist]
-            if arg == 'circle':
-                size = nx/10
-            else:
-                size = min([nx/5,ny/5])
+        self.canvas2.ax.scatter(xs, ys, zs, s=size)
 
+        for posgroup in barlist:
+            #posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
 
-            self.canvas2.ax.scatter(xs,ys,zs,s = size)
-                
-            for posgroup in barlist:
-#posgroup is [(xorg,y,z),(xe),(xvo),(xve)]
+            self.canvas2.ax.plot([posgroup[0][0], posgroup[1][0]],
+                                 [posgroup[0][1], posgroup[1][1]], color='#800000'
+                                 )
+            self.canvas2.ax.plot([posgroup[0][0], posgroup[2][0]],
+                                 [posgroup[0][1], posgroup[2][1]], color='red'
+                                 )
+            self.canvas2.ax.plot([posgroup[1][0], posgroup[3][0]],
+                                 [posgroup[1][1], posgroup[3][1]], color='red'
+                                 )
+        self.horizontalLayout_3.addWidget(self.canvas2)
 
-                self.canvas2.ax.plot( [posgroup[0][0],posgroup[1][0]],
-                                     [posgroup[0][1],posgroup[1][1]], color = '#800000'
-                                     )
-                self.canvas2.ax.plot([posgroup[0][0],posgroup[2][0]],
-                                     [posgroup[0][1],posgroup[2][1]], color = 'red'
-                                     )
-                self.canvas2.ax.plot([posgroup[1][0],posgroup[3][0]],
-                                     [posgroup[1][1],posgroup[3][1]], color = 'red'
-                                     )
-            self.horizontalLayout_3.addWidget(self.canvas2)
-
-    def updateCoord(self,x,y,poslist,bar):
-        self.label_Coord.setText('Mouse coords: ( %d , %d )' % ((x-300)/5,(-y+300)/5))
+    def updateCoord(self, x, y, poslist, bar):
+        self.label_Coord.setText(
+            'Mouse coords: ( %d , %d )' % ((x-300)/5, (-y+300)/5))
         self.label_points.setText(str(len(poslist)))
 
 
-
-
-
 #################################################################################
-
-
-
-
-
-
 
 
 if __name__ == '__main__':
