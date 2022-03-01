@@ -1,0 +1,3 @@
+# these are dependencies required to run package tests
+# ought to mirror 'tests' under options.extras_require in setup.cfg
+pytest >= 5.1
