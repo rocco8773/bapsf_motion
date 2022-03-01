@@ -102,7 +102,8 @@ class Canvas(QLabel):
         self.cy = 0
         self.bar = 0
         self.centers = ''
-
+        self.closeit = False
+        
         p = QPainter(self.pixmap())
         p.setPen(QPen(QColor(Qt.black),
                  self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -737,7 +738,8 @@ class Canvas(QLabel):
         self.z1 = 5*float(arg.z1.text())
         self.z2 = 5*float(arg.z2.text())
         self.centers = str(arg.gridCentre.text())
-
+        self.closeit = arg.closeit
+        
     def print_positions(self, arg):
         """ Position generating function, for display purposes.
         First- Generates the barrier from given points, as well as the 
@@ -1062,6 +1064,10 @@ class Canvas(QLabel):
         ''' point generator for polygonal lines. Currently defaults to not closing shape'''
 
         poslist = []
+        if self.closeit == True:
+                    index = 1
+        elif self.closeit == False:
+                    index = 0
         bar = int(self.bar/2)
         xs = np.delete(self.xpos, -1)
         ys = np.delete(self.ypos, -1)
@@ -1070,8 +1076,17 @@ class Canvas(QLabel):
         ys = ys[1::2]
         xpos = [xs[bar]]
         ypos = [ys[bar]]
+        
+        if self.closeit == True:
+            p = QPainter(self.pixmap())
 
-        for i in range(bar, len(xs)-1):
+            p.setPen(QPen(QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setBrush(QBrush(QColor(Qt.black)))
+        
+            p.drawLine(QPointF(xs[-1]+300, -ys[-1]+300),
+                   QPointF(xs[0]+300, -ys[0]+300))
+
+        for i in range(bar-index, len(xs)-1):
             xposi = xs[i]
             xposi2 = xs[i+1]
 
@@ -1700,16 +1715,16 @@ class Canvas(QLabel):
         bar = arg.barcord.text()
         barlist = []
         p = QPainter(self.pixmap())
-
+        p.setPen(QPen(QColor(Qt.red), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(QBrush(QColor(Qt.red)))
+        
         if bar[0] == '(':
             bar = np.array(bar.replace('(', '').replace(')', '').split(
                 ','), dtype=float).reshape(-1, 3)
             xs = [5*x[0] for x in bar]
             ys = [5*x[1] for x in bar]
             zs = [5*x[2] for x in bar]
-            p.setPen(QPen(
-                QColor(Qt.red), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            p.setBrush(QBrush(QColor(Qt.red)))
+      
 
             for i in range(0, len(xs)-1, 2):
                 xe = xs[i+1]
@@ -1775,12 +1790,18 @@ class Canvas(QLabel):
                 p.setPen(QPen(
                     QColor(Qt.black), self.config['size'], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.setBrush(QBrush(QColor(Qt.black)))
-
-                for i in range(0, len(xs)-1):
+                
+                if self.closeit == True:
+                    index = -1
+                elif self.closeit == False:
+                    index = 0
+                
+                
+                for i in range(index, len(xs)-1):
                     p.drawLine(QPointF(xs[i]+300, -ys[i]+300),
                                QPointF(xs[i+1]+300, -ys[i+1]+300))
 
-                for i in range(0, len(xs)-1):
+                for i in range(index, len(xs)-1):
 
                     xposi = xs[i]
                     xposi2 = xs[i+1]
@@ -2665,7 +2686,7 @@ class Canvas(QLabel):
                        str(self.ny/5)+' ' + str(self.nz/5))
 
         Dict = {'mode': self.mode, 'xres': self.nx, 'yres': self.ny, 'zres': self.nz,
-                'xs': self.xpos, 'ys': self.ypos, 'zs': self.zpos, 'bar': self.barlist, hand: self.hand}
+                'xs': self.xpos, 'ys': self.ypos, 'zs': self.zpos, 'bar': self.barlist, hand: self.hand, close: self.closeit}
         toml_string = toml.dumps(Dict)  # Output to a string
 
         output_file_name = "output.toml"
@@ -2810,21 +2831,48 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.mode = 'line'
         elif index == 3:
             self.mode = 'polyline'
+            self.checkBoxlabel = QtWidgets.QLabel(self.groupBox)
+            self.checkBoxlabel.setMaximumWidth(150)
+            self.verticalLayout_2.addWidget(self.checkBoxlabel)
+            self.checkBoxlabel.setText( "Auto-close polygon?")
+            self.checkBox = QtWidgets.QCheckBox(self.groupBox)
+            self.checkBox.setObjectName("checkBox")
+            self.checkBox.setMaximumWidth(150)
+            self.verticalLayout_2.addWidget(self.checkBox)
+            self.checkBox.stateChanged.connect(lambda: self.btnstate(self.checkBox))
+    
         elif index == 4: 
             self.mode = 'ellipse'
 
     def get_index2(self):
         index = self.gridBox.currentIndex()
+        
         if index == None:
             pass
         if index ==0:
             self.grid = 'rect'
         elif index == 1:
             self.grid = 'circle'
-        elif index ==2 :
-            self.grid = 'ellipse'
         elif index ==3 :
+            self.grid = 'ellipse'
+            
+            self.ecc = QtWidgets.QLineEdit(self.groupBox)
+            self.ecc.setMaximumWidth(150)
+            self.ecc.setObjectName("ecc")
+            self.ecc.setText("Enter eccentricity of ellipse")
+            self.verticalLayout_2.addWidget(self.ecc)
+            self.ecc.finishedEditing.connect(lambda: self.btnstate())
+            
+            
+        elif index ==2 :
             self.grid = 'sphere'
+            
+    def btnstate(self,b):
+        if b.isChecked() == True:
+            self.closeit = True
+        else:
+            self.closeit = False
+        self.canvas.set_status(self)
 #################################################################################
 
 

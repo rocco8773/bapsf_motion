@@ -203,7 +203,7 @@ class Ui_MainWindow(object):
         self.verticalLayout_2.addWidget(self.gridCentre)
 
         self.gridResLabel = QtWidgets.QLabel(self.groupBox)
-        self.gridResLabel.setMaximumSize(QtCore.QSize(150, 20))
+        self.gridResLabel.setMaximumSize(QtCore.QSize(150, 40))
         self.gridResLabel.setObjectName("gridResLabel")
         self.verticalLayout_2.addWidget(self.gridResLabel)
         
@@ -403,7 +403,7 @@ class Ui_MainWindow(object):
         self.gridCentre.setToolTip(_translate("MainWindow", "Enter custom-center(s) in the format (x,y,z), (x1,y1,z1,) , or leave empty for default gridding (Centers of defined regions)"))
 
         
-        self.gridResLabel.setText(_translate("MainWindow", "Grid-Resolution"))
+        self.gridResLabel.setText(_translate("MainWindow", "Grid-Resolution (dx or dr\n dy or dΦ\n dz or dϴ)"))
         self.zrangelabel.setText(_translate("MainWindow", "Z-range:"))
         self.label_11.setText(_translate("MainWindow", "to:"))
         
