@@ -63,6 +63,8 @@ class MplCanvas(FigureCanvas):
 
 
 class Canvas(QLabel):
+    '''This class controls the "canvas" where one can draw the shapes to define
+    data acquisition regions in 2D (3D with z-axis extrusion). '''
 
     mode = 'rect'
     grid = 'rect'
@@ -83,6 +85,7 @@ class Canvas(QLabel):
     def initialize(self):
         self.background_color = QColor(Qt.gray)
         self.eraser_color = QColor(Qt.white)
+        self.last_pos = None
         self.eraser_color.setAlpha(100)
         self.hand = 0
         self.reset()
@@ -90,6 +93,7 @@ class Canvas(QLabel):
         self.ypos = []
         self.nx = 10
         self.ny = 10
+        self.nz = 1
         self.z1 = 1
         self.z2 = 1
         self.poslist = []
@@ -123,6 +127,7 @@ class Canvas(QLabel):
         self.update()
 
     def reset(self):
+        ''' Reset the canvas, and associated data'''
         # Create the pixmap for display.
         self.setPixmap(QPixmap(*CANVAS_DIMENSIONS))
 
@@ -152,6 +157,7 @@ class Canvas(QLabel):
         self.primary_color = QColor(hex)
 
     def set_hand(self):
+        ''' Sets ''chirality'' i.e. Left or Right entry point.'''
         if self.hand == 0:
             self.hand = 1
         elif self.hand == 1:
@@ -159,7 +165,9 @@ class Canvas(QLabel):
 
         self.reset()
 
-    def set_mode(self, mode):
+    def set_mode(self, mode ):
+        ''' This mode controls the shape painting function, 
+        as well as the point generator'''
         # Clean up active timer animations.
         self.timer_cleanup()
         # Reset mode-specific vars (all)
@@ -173,13 +181,14 @@ class Canvas(QLabel):
 
         self.history_pos = None
         self.last_history = []
-
-        # Apply the mode
+        #Apply Mode
         self.mode = mode
 
     def set_grid(self, grid):
+        ''' similar to mode system, sets the grid system'''
         self.grid = grid
 
+            
     def reset_mode(self):
         self.set_mode(self.mode)
 
@@ -195,10 +204,30 @@ class Canvas(QLabel):
             timer_event(final=True)
 
     # Mouse events.
-
+    ''' redefining pyqt mouse events... depending on chosen mode, 
+    this will also call  a mode specific  drawing function to paint shape 
+    on the canvas'''
+    
+    """Everything internal is handled in coordinate units. 
+    ###### EXCEPT THE BARLIST
+    # All inputs are taken in cm units.
+    # means output list is also in coord units.
+    # 1 cm = 5pixel, as per the set size of the canvas.
+    # self.xpos, self.ypos (and self.zpos) are containers for all vertex points.
+    Basic point verification routine- distance from centre (is_inside_machine?)
+    
+    Angle from entry point (can probe reach via ball-valve. )### CURRENTLY COMPLETELY AD-HOC ##### 
+    Current angle-restriction setup-
+    \_ Hole perfectly aligned with centre of lapd, + exacty at the edge of lapd.
+    valve is 2 cm long, and 2 cm above and below hole. SO shaft makes 45 degree angles at max.. definitely incorrect.
+    """
+    
+    
     def mousePressEvent(self, e):
         fn = getattr(self, "%s_mousePressEvent" % self.mode, None)
+### calls mode_specific canvas drawing function- 
 
+### Basic Point validity verification routine:
         dist = ((e.x() - 300)**2 + (e.y()-300)**2)**0.5
         if dist > 250:
 
@@ -210,6 +239,7 @@ class Canvas(QLabel):
             msg.exec_()
 
         if self.hand == 0:
+
             if (e.y() - 310 - e.x() + 560 < 0):
 
                 msg = QMessageBox()
@@ -250,6 +280,7 @@ class Canvas(QLabel):
                 msg.exec_()
 
         if e.x() is not None and e.y() is not None:
+           
             self.xpos = np.append(self.xpos, e.x()-300)
             self.ypos = np.append(self.ypos, -e.y()+300)
             if fn:
@@ -264,8 +295,11 @@ class Canvas(QLabel):
             return fn(e)
 
     def mouseReleaseEvent(self, e):
+        
         fn = getattr(self, "%s_mouseReleaseEvent" % self.mode, None)
+### calls mode_specific function- 
 
+### Basic Point validity verification routine:
         dist = ((e.x() - 300)**2 + (e.y()-300)**2)**0.5
         if dist > 250:
             msg = QMessageBox()
@@ -366,9 +400,10 @@ class Canvas(QLabel):
     #         self.update()
 
     #     self.reset_mode()
+    
+    
 
     # Line events
-
     def line_mousePressEvent(self, e):
         self.origin_pos = e.pos()
         self.current_pos = e.pos()
@@ -691,27 +726,37 @@ class Canvas(QLabel):
         self.bar = 0
         arg.saveButton.setEnabled(False)
 
-# everything internal is handled in coordinate units. ###### EXCEPT THE BARLIST
-# means output list is also in coord units.
-# 1 cm = 5pixel.
+
 
     def set_status(self, arg):
+        """ Register resolution and z-axis extrusion inputs. 
+        5x factor for cm to pixel conversion"""
         self.nx = 5*float(arg.xres.text())
         self.ny = 5*float(arg.yres.text())
         self.nz = 5*float(arg.zres.text())
         self.z1 = 5*float(arg.z1.text())
         self.z2 = 5*float(arg.z2.text())
+        self.centers = str(arg.gridCentre.text())
 
     def print_positions(self, arg):
-        # print(self.xpos)
-        # print(self.ypos)
-        # self.set_status()
+        """ Position generating function, for display purposes.
+        First- Generates the barrier from given points, as well as the 
+         region that becomes no-go zone.  Currently based off ad-hoc 
+         assumptions for the angular reach of a probe shaft from a particular 
+         valve.
+        Second- Calls point generating function depending on the mode.
+        Each point generating function further looks at grid config to setup points.
+        """
+      
         mode = self.mode
         bar = self.bar
-        self.zpos = [self.z1, self.z2]
+        self.zpos = [self.z1, self.z2] #Z-extrusion range
         barlist = []
-        arg.saveButton.setEnabled(False)
-# apologies to anyone reading this code, but the transformations between one coord system and another are too irksome to document.
+        arg.saveButton.setEnabled(False)  #Must verify to reenable button
+        
+        ### Generate the barrier from given points, as well as the 
+        ### region that becomes no-go zone.  Currently based off ad-hoc 
+        ### assumptions for the angular reach  of a probe shaft from a particular valve.
         for i in range(0, bar-1, 2):
             xe = self.xpos[i+1]
             xorg = self.xpos[i]
@@ -765,6 +810,7 @@ class Canvas(QLabel):
             self.get_positionsellipse()
 
     def get_positionsrect(self):
+        ''' point generator for rectangular/cuboidal shapes. Defined by corner vertices'''
         bar = self.bar
         poslist = []
 
@@ -958,6 +1004,8 @@ class Canvas(QLabel):
                 
 
     def get_positionsline(self):
+        ''' point generator for lines'''
+
         poslist = []
         bar = self.bar
         xs = self.xpos
@@ -1011,17 +1059,19 @@ class Canvas(QLabel):
         self.poslist = poslist
 
     def get_positionspoly(self):
+        ''' point generator for polygonal lines. Currently defaults to not closing shape'''
+
         poslist = []
-        bar = self.bar
+        bar = int(self.bar/2)
         xs = np.delete(self.xpos, -1)
         ys = np.delete(self.ypos, -1)
 
         xs = xs[1::2]
         ys = ys[1::2]
-        xpos = [xs[bar-1]]
-        ypos = [ys[bar-1]]
+        xpos = [xs[bar]]
+        ypos = [ys[bar]]
 
-        for i in range(bar-1, len(xs)-1):
+        for i in range(bar, len(xs)-1):
             xposi = xs[i]
             xposi2 = xs[i+1]
 
@@ -1055,6 +1105,8 @@ class Canvas(QLabel):
         self.poslist = poslist
 
     def get_positionscircle(self):
+        ''' point generator for circular/cylindrical shapes.
+        Circles are defined by point at centrre and random point on the circular edge.'''
 
         poslist = []
         bar = self.bar
@@ -1267,6 +1319,9 @@ class Canvas(QLabel):
    
     
     def get_positionsellipse(self):
+        ''' point generator for elliptical shapes. 
+        Ellipse defined by circumscribing rectangle'''
+
 
         poslist = []
         bar = self.bar
@@ -1488,6 +1543,10 @@ class Canvas(QLabel):
     
 
     def checklist(self, arg):
+        '''Final verification routine to check no point is in a no-go region or an unreachable 
+        region.
+        Must be run to save the config/text coordinate files. 
+        '''
         # self.set_status()
         xs = [x[0] for x in self.poslist]
         ys = [x[1] for x in self.poslist]
@@ -1633,7 +1692,12 @@ class Canvas(QLabel):
         arg.saveButton.setEnabled(True)
 
     def coordEnter(self, arg):
-        bar = arg.barcoord.text()
+        '''massive function, should probably be restructured, rewritten? 
+        Same functionality as print_position() + get_*mode*_positions(), 
+        Used when precise coordinates are fed by the user to the module.
+        '''
+        
+        bar = arg.barcord.text()
         barlist = []
         p = QPainter(self.pixmap())
 
@@ -2562,7 +2626,8 @@ class Canvas(QLabel):
                         self, "Error", "Position should be valid numbers.")
 
     def enter(self, grid):
-
+        ''' When selecting grid-style, launch pop-up window for additional config info
+        '''
         if grid == 'circle':
             text, ok = QInputDialog.getText(
                 self, 'Grid Set-up', 'Enter custom-center(s), or leave empty for default gridding (Centers of defined regions)')
@@ -2611,40 +2676,34 @@ class Canvas(QLabel):
 class MainWindow(QMainWindow, Ui_MainWindow):
 
     def __init__(self, *args, **kwargs):
+        '''connect UI to functions'''
         super(MainWindow, self).__init__(*args, **kwargs)
         self.setupUi(self)
 
-        # Replace canvas placeholder from QtDesigner.
-        # self.horizontalLayout.removeWidget(self.canvas)
+        # self.horizontalLayout.removeWidget(self.graphicsView_2)
+        # self.horizontalLayout.removeWidget(self.graphicsView)
+
         self.canvas = Canvas()
         self.canvas.initialize()
+        self.canvas.setFixedHeight(600)
+        self.canvas.setFixedWidth(600)
         # We need to enable mouse tracking to follow the mouse without the button pressed.
         self.canvas.setMouseTracking(True)
-        # Enable focus to capture key inputs.
-        self.canvas.setFocusPolicy(Qt.StrongFocus)
-        self.horizontalLayout_3.addWidget(self.canvas)
-
+        # # Enable focus to capture key inputs.
+        # self.canvas.setFocusPolicy(Qt.StrongFocus)
+        self.horizontalLayout.addWidget(self.canvas)
+        
         self.canvas2 = MplCanvas()
-        self.horizontalLayout_3.addWidget(self.canvas2)
+        self.horizontalLayout.addWidget(self.canvas2)
+       
+        #Connect mode Box
+  
+       
+        self.modeBox.currentIndexChanged.connect(lambda: [self.get_index(), self.canvas.set_mode(self.mode)])
 
-        # Setup the mode buttons
-        mode_group = QButtonGroup(self)
-        mode_group.setExclusive(True)
 
-        for mode in MODES:
-            btn = getattr(self, '%sButton' % mode)
-            btn.pressed.connect(lambda mode=mode: self.canvas.set_mode(mode))
-            mode_group.addButton(btn)
-
-        # Setup the grid buttons
-        grid_group = QButtonGroup(self)
-        grid_group.setExclusive(True)
-
-        for grid in GRIDS:
-            btn = getattr(self, '%sgButton' % grid)
-            btn.pressed.connect(lambda grid=grid: [
-                                self.canvas.set_grid(grid), self.canvas.enter(grid)])
-            grid_group.addButton(btn)
+        # Setup Grid Box
+        self.gridBox.currentIndexChanged.connect(lambda: [self.get_index2(), self.canvas.set_grid(self.grid)])
 
         self.printButton.clicked.connect(lambda: [self.canvas.print_positions(self), self.update_graph(
             self.canvas.poslist, self.canvas.nx, self.canvas.ny, self.canvas.barlist, self.canvas.mode)])
@@ -2654,8 +2713,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.verifyButton.clicked.connect(lambda: self.canvas.checklist(self))
         self.EntButton.clicked.connect(lambda: [self.canvas.reset(), self.canvas.resetpos(self), self.canvas.coordEnter(
             self), self.update_graph(self.canvas.poslist, self.canvas.nx, self.canvas.ny, self.canvas.barlist, self.canvas.mode)])
-        self.hand.clicked.connect(
-            lambda: [self.canvas.set_hand(), self.canvas.resetpos(self)])
+        # self.hand.clicked.connect(
+        #     lambda: [self.canvas.set_hand(), self.canvas.resetpos(self)])
 
         # Initialize animation timer.
         self.timer = QTimer()
@@ -2666,11 +2725,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.xres.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.yres.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.zres.editingFinished.connect(lambda: self.canvas.set_status(self))
-
+        self.gridCentre.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.z1.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.z2.editingFinished.connect(lambda: self.canvas.set_status(self))
         self.canvas.move.connect(lambda: self.updateCoord(
             self.canvas.cx, self.canvas.cy, self.canvas.poslist, self.canvas.bar))
+        self.hand.clicked.connect(lambda: [self.canvas.set_hand() ,self.canvas.resetpos(self)])
 
         sizeicon = QLabel()
         sizeicon.setPixmap(
@@ -2679,8 +2739,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.show()
 
     def update_graph(self, poslist, nx, ny, barlist, arg):
-
-        self.horizontalLayout_3.removeWidget(self.canvas2)
+        ''' ROutine to update Matplotlib graph displaying actual data points defined so far, 
+        as well as barriers and no-go zones'''
+        self.horizontalLayout.removeWidget(self.canvas2)
 
         self.canvas2 = MplCanvas()
         self.canvas2.ax.set_xlim3d(-100, 100)
@@ -2709,14 +2770,61 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.canvas2.ax.plot([posgroup[1][0], posgroup[3][0]],
                                  [posgroup[1][1], posgroup[3][1]], color='red'
                                  )
-        self.horizontalLayout_3.addWidget(self.canvas2)
+        self.horizontalLayout.addWidget(self.canvas2)
 
     def updateCoord(self, x, y, poslist, bar):
-        self.label_Coord.setText(
+        '''Display current cursor coordinates in LAPD, cm units'''
+        self.coordLabel.setText(
             'Mouse coords: ( %d , %d )' % ((x-300)/5, (-y+300)/5))
-        self.label_points.setText(str(len(poslist)))
+        self.pointnumberLabel2.setText(str(len(poslist)))
 
 
+    def get_index(self):
+        index = self.modeBox.current(Index)
+        if index == None:
+            pass
+        if index == 5:
+            self.mode = 'barrier'
+        elif index == 0:
+            self.mode = 'rect'
+        elif index == 1:
+            self.mode = 'circle'
+        elif index == 2:
+            self.mode = 'line'
+        elif index == 3:
+            self.mode = 'polyline'
+        elif index == 4: 
+            self.mode = 'ellipse'
+
+    def get_index(self):
+        index = self.modeBox.currentIndex()
+        if index == None:
+            pass
+        if index == 5:
+            self.mode = 'barrier'
+        elif index == 0:
+            self.mode = 'rect'
+        elif index == 1:
+            self.mode = 'circle'
+        elif index == 2:
+            self.mode = 'line'
+        elif index == 3:
+            self.mode = 'polyline'
+        elif index == 4: 
+            self.mode = 'ellipse'
+
+    def get_index2(self):
+        index = self.gridBox.currentIndex()
+        if index == None:
+            pass
+        if index ==0:
+            self.grid = 'rect'
+        elif index == 1:
+            self.grid = 'circle'
+        elif index ==2 :
+            self.grid = 'ellipse'
+        elif index ==3 :
+            self.grid = 'sphere'
 #################################################################################
 
 
