@@ -1,9 +1,11 @@
+__all__ = ["MotorMovement"]
+
 import math
 import numpy as np
 
 from PyQt5.QtWidgets import *
 
-from .drive import DriveControl
+from bapsf_motion.controllers.drive import DriveControl
 
 
 class MotorMovement:
@@ -195,9 +197,7 @@ class MotorMovement:
             self.speedy = "None"
         if self.speedz is None:
             self.speedz = "None"
-        self.velocityInput.setText(
-            f"({self.speedx}, {self.speedy}, {self.speedz})"
-        )
+        self.velocityInput.setText(f"({self.speedx}, {self.speedy}, {self.speedz})")
 
     def get_alarm_code(self):
         return self.mc.get_alarm_code()
