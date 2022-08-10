@@ -8,8 +8,6 @@
 
 __all__ = ["GroupLayout", "TabPage", "Ui_MainWindow"]
 
-import sys
-
 from matplotlib.pyplot import imread
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -472,8 +470,8 @@ if __name__ == "__main__":
     import sys
 
     app = QtWidgets.QApplication(sys.argv)
-    MainWindow = QtWidgets.QMainWindow()
+    main_window = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
-    ui.setupUi(MainWindow)
-    MainWindow.show()
+    ui.setupUi(main_window)
+    main_window.show()
     sys.exit(app.exec_())

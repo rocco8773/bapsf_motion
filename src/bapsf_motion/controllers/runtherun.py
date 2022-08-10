@@ -1,7 +1,7 @@
 import time
 import tomli
 
-from bapsf_motion.controllers.motion_group import MotionGroup
+from motion_group import MotionGroup
 
 __all__ = ["RunManager"]
 
@@ -93,7 +93,7 @@ class RunManager:
     def move_to_index(self, index, groupnum=1, everything=True):
         length = max(len(self.groups[group].poslist) for group in self.groups)
         self.index = index
-        if everything == False:
+        if not everything:
             try:
                 if index < len(self.groups[groupnum]):
                     x = self.groups[groupnum].poslist[index][0]
@@ -197,7 +197,7 @@ class RunManager:
         ]
 
     def stop(self, groupnum=1, everything=True):
-        if everything == False:
+        if not everything:
             self.groups[groupnum].stop_now()
         else:
             for group in self.groups:
