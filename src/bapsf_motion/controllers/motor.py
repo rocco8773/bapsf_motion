@@ -26,8 +26,8 @@ class MotorControl:
         else:
             self.msipa_cache_fn = msipa_cache_fn
 
-        # if we get an ip address argument, set that as the suggest server IP address,
-        # otherwise look in cache file
+        # if we get an ip address argument, set that as the suggested server
+        # IP address, otherwise look in cache file
         if server_ip_addr is not None:
             self.server_ip_addr = server_ip_addr
         else:
