@@ -1,5 +1,9 @@
-
+"""
+Module for functionality focused around the
+`~bapsf_motion.actors.motor_.Motor` actor class.
+"""
 __all__ = ["do_nothing", "CommandEntry", "Motor"]
+__actors__ = ["Motor"]
 
 import asyncio
 import logging
@@ -9,7 +13,7 @@ import threading
 import time
 
 from collections import namedtuple, UserDict
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, AnyStr, Callable, Dict, List, NamedTuple, Optional, Union
 
 from bapsf_motion.actors.base import BaseActor
 from bapsf_motion.utils import ipv4_pattern, SimpleSignal
@@ -17,18 +21,109 @@ from bapsf_motion.utils import units as u
 
 
 def do_nothing(x):
+    """Return argument ``x`` unchanged."""
     return x
 
 
 class CommandEntry(UserDict):
+    r"""
+    A `dict` containing all the necessary information to define a
+    command that is sent to an ethernet based stepper motor.
+
+    Parameters
+    ----------
+
+    command: str
+        Name of the command.  If the command entry is also a method
+        command, then this must be the name of the class method to
+        be called.
+
+    send: str
+        The base `str` command that is sent to the motor.
+
+    send_processor: :term:`callable`, optional
+        A callable object that processes the command argument before
+        the full command is sent to the motor.  The callable must
+        return a string that is concatenated with the ``send`` command
+        to form the full command.  If `None`, then the command is
+        assumed to have no argument. (DEFAULT: `None`)
+
+    recv: re.Pattern, optional
+        A `re` compiled pattern to expression match any received string
+        from the sent command.  If `None`, then no expression matching
+        is performed on the returned string.  If a pattern is defined,
+        then the pattern must define a return group
+        (i.e. ``'(?P<return>...)'``).  This return group is assumed to
+        be the returned argument and will be further processed by the
+        ``recv_processor``. (DEFAULT: `None`)
+
+    recv_processor: :term:`callable`, optional
+        A callable object that will process the returned argument from
+        the sent command.  The returned command is always in the form
+        of a string, so the processor must take a string and process
+        that it into any desirable type.  If `None`, then no processing
+        is performed. (DEFAULT:
+        `~bapsf_motion.actors.motor_.do_nothing`)
+
+    two_way: bool, optional
+        The command both sends and receives arguments from the motor.
+        (DEFAULT: `False`)
+
+    units: :term:`unit-like`, optional
+        An object that represents the units of the sent and/or returned
+        arguments.  These units will converted into `astropy.units` and
+        will become the default units for any argument sent or received
+        by this defined command.  (DEFAULT: `None`)
+
+    method_command: bool
+        If `True`, then the defined command is a method command.  A
+        method command is an advanced motor command (e.g. ``move_to``)
+        that requires multiple base commands to be performed in a
+        particular sequence.  Thus, the ``command`` argument defines
+        the name of a class method that will be executed for this
+        command. (DEFAULT: `False`)
+
+    Examples
+    --------
+    An example of a typical motor command entry...
+
+    .. code-block:: python
+
+        ce = CommandEntry(
+            "speed",
+            send="VE",
+            send_processor=lambda value: f"{float(value):.4f}",
+            recv=re.compile(r"VE=(?P<return>[0-9]+\.?[0-9]*)"),
+            recv_processor=float,
+            two_way=True,
+            units=u.rev / u.s,
+        )
+
+    An example of a method based motor command entry.  A method based
+    command is reserved for more advanced commands that typically
+    require multiple base commands to be sent in a particular sequence.
+
+    .. code-block:: python
+
+        ce = CommandEntry(
+            "move_to",
+            send="",
+            units=u.steps,
+            method_command=True,
+        )
+    """
+
+    # TODO: elaborate on examples in the docstring to describe exactly
+    #       how the defined command would work
+
     def __init__(
         self,
         command: str,
         *,
         send: str,
-        send_processor: Optional[Callable] = None,
+        send_processor: Optional[Callable[[Any], str]] = None,
         recv: Optional[re.Pattern] = None,
-        recv_processor: Optional[Callable] = do_nothing,
+        recv_processor: Optional[Callable[[str], Any]] = do_nothing,
         two_way: bool = False,
         units: Union[str, u.Unit, None] = None,
         method_command: Optional[bool] = False,
@@ -58,15 +153,78 @@ class CommandEntry(UserDict):
         super().__init__(**_dict)
 
     @property
-    def command(self):
+    def command(self) -> str:
+        """
+        Name of the command.  If the command entry is also a method
+        command, then this is the name of the class method to be called.
+        """
         return self._command
 
 
 class Motor(BaseActor):
+    """
+    An actor class for directly communicating to an ethernet based
+    stepper motor.  This actor is only aware of the motor, and is
+    ignorant of how it is situated within a probe drive.  Thus, all
+    units are in motor units, i.e. steps, counts, rev, and sec.
+
+    Parameters
+    ----------
+    ip: `str`
+        IPv4 address for the motor
+    name: `str`, optional
+        Name the motor.  If `None`, then the name will be automatically
+        generated. (DEFAULT: `None`)
+    logger: `~logging.Logger`, optional
+        An instance of `~logging.Logger` that the Actor will record
+        events and status updates to.  If `None`, then a logger will
+        automatically be generated. (DEFUALT: `None`)
+    loop: `asyncio.AbstractEventLoop`, optional
+        Instance of an `asyncio` `event loop`_. Communication with the
+        motor will happen primaritly through the evenet loop.  If
+        `None`, then an `event loop`_ will be auto-generated.
+        (DEFAULT: `None`)
+    auto_run: bool, optional
+        If `True`, then the `event loop`_ will be placed in a separate
+        thread and started.  This is all done via the :meth:`run`
+        method. (DEFAULT: `False`)
+
+    Examples
+    --------
+
+    Using `Motor` with ``auto_start=True``.
+
+    >>> import logging
+    >>> logging.basicConfig(level=logging.NOTSET)
+    >>> lgr = logging.getLogger()
+    >>> m1 = Motor(
+    ...     ip="192.168.0.70",
+    ...     name="m1",
+    ...     logger=lgr,
+    ...     auto_run=True,
+    ... )
+    >>> # now stop the actor, which stops the event loop
+    >>> m1.stop_running()
+
+    Using `Motor` with ``auto_start=False``.
+
+    >>> import logging
+    >>> logging.basicConfig(level=logging.NOTSET)
+    >>> lgr = logging.getLogger()
+    >>> m1 = Motor(
+    ...     ip="192.168.0.70",
+    ...     name="m1",
+    ...     logger=lgr,
+    ... )
+    >>> # start the actor, with starts the event loop
+    >>> m1.run()
+    >>> # now stop the actor, which stops the event loop
+    >>> m1.stop_running()
+    """
     #: available commands that can be sent to the motor
     _commands = {
         "acceleration": CommandEntry(
-            "a«acceleration",
+            "acceleration",
             send="AC",
             send_processor=lambda value: f"{float(value):.3f}",
             recv=re.compile(r"AC=(?P<return>[0-9]+\.?[0-9]*)"),
@@ -225,15 +383,22 @@ class Motor(BaseActor):
     #       get_speed are just aliases for the speed command)
     # TODO: Do I need to store feed target, spead, accel, and decel?
     #       Same for the jog equivalent.
+    # TODO: reconcile the implementation of properties name and logger
+    #       between the Motor class and the BaseActor class...BaseActor
+    #       defines these as instance variable but Motor defines them
+    #       in the self._setup...we shouldn't be redoing implementations
+    # TODO: create a method that lists all available commands
+    # TODO: create a method the shows a commands definition
+    #       (i.e. self._commands[command])
 
     def __init__(
         self,
         *,
         ip: str,
         name: str = None,
-        logger=None,
-        loop=None,
-        auto_start=False,
+        logger: logging.Logger = None,
+        loop: asyncio.AbstractEventLoop = None,
+        auto_run: bool = False,
     ):
         self._init_instance_variables()
 
@@ -249,10 +414,14 @@ class Motor(BaseActor):
         self._configure_motor()
         self.send_command("retrieve_motor_status")
 
-        if auto_start:
+        if auto_run:
             self.run()
 
     def _init_instance_variables(self):
+        """
+        Initialized object instance variables, which define operating
+        parameters for the actor.
+        """
         # : parameters that define the setup of the Motor class (actual motor settings
         # should be defined in _motor)
         self._setup = {
@@ -264,7 +433,7 @@ class Motor(BaseActor):
             "tasks": None,
             "max_connection_attempts": 3,
             "heartrate": namedtuple("HR", ["base", "active"])(
-                base=2, active=0.2
+                base=2.0, active=0.2
             ),  # in seconds
             "port": 7776,  # 7776 is Applied Motion's TCP port, 7775 is the UDP port
         }  # type: Dict[str, Any]
@@ -309,16 +478,44 @@ class Motor(BaseActor):
         self.movement_finished = SimpleSignal()
 
     def _configure_motor(self):
+        """
+        Configure motor behavior for suitable operation with the actor.
+
+        This configuration should be performed during object
+        instantiation and upon re-connecting.
+        """
         self._send_raw_command("IFD")  # set format of immediate commands to decimal
 
         # ensure motor always sends Ack/Nack
         self._read_and_set_protocol()
 
     def _read_and_set_protocol(self):
+        """
+        Read and set the motor protocol settings.  For proper
+        behavior between the motor and actor, the motor should be set
+        to always return an Ack/Nack acknowledgement for every sent
+        command.
+
+        The 'protocol' command returns an integer that can be converted
+        into a 9-bit binary word.  Each bit in that word represent
+        a unique protocol setting.
+
+        bit 0 = Default ('Standard SCL')
+        bit 1 = Always use Address Character
+        bit 2 = Always return Ack/Nack
+        bit 3 = Checksum
+        bit 4 = (reserved)
+        bit 5 = 3-digit numeric register addressing
+        bit 6 = Checksum Type (step-servo and SV200 only)
+        bit 7 = Little/Big Endian in Modbus Mode
+        bit 8 =Full Duplex in RS-422
+        """
         rtn = self.send_command("protocol")
         _bits = f"{rtn:09b}"
 
         if _bits[-3] == "0":
+            # motor does not always respond with ack/nack, change
+            # protocol so it does
             _bits = list(_bits)
             _bits[-3] = "1"  # sets always ack/nack
             _bits = "".join(_bits)
@@ -348,6 +545,7 @@ class Motor(BaseActor):
             self._motor["protocol_settings"].append(_bit_descriptions[bit_num])
 
     def _get_motor_parameters(self):
+        """Get current motor parameters."""
         self._motor.update(
             {
                 "gearing": self.send_command("gearing"),
@@ -360,6 +558,7 @@ class Motor(BaseActor):
 
     @property
     def name(self):
+        """Given motor name."""
         return self._setup["name"]
 
     @name.setter
@@ -368,6 +567,7 @@ class Motor(BaseActor):
 
     @property
     def logger(self) -> logging.Logger:
+        """The `~logger.Logger` being used for the actor."""
         return self._setup["logger"]
 
     @logger.setter
@@ -376,6 +576,7 @@ class Motor(BaseActor):
 
     @property
     def _loop(self) -> asyncio.events.AbstractEventLoop:
+        """`asyncio` `event loop`_ being used for motor communication."""
         return self._setup["loop"]
 
     @_loop.setter
@@ -383,7 +584,8 @@ class Motor(BaseActor):
         self._setup["loop"] = value
 
     @property
-    def _thread(self):
+    def _thread(self) -> threading.Thread:
+        """The `~threading.Thread` the `event loop`_ is running in."""
         return self._setup["thread"]
 
     @_thread.setter
@@ -391,34 +593,48 @@ class Motor(BaseActor):
         self._setup["thread"] = value
 
     @property
-    def heartrate(self):
+    def heartrate(self) -> NamedTuple:
+        """
+        Heartrate of the motor monitor, or the time (in sec) between
+        motor checks.  There are two different heartrates:
+        (1) ``heartrate.base`` for when the motor is not moving, and
+        (2) ``heartrate.active`` for when the motor is moving.
+        """
         return self._setup["heartrate"]
 
     @property
-    def status(self):
+    def status(self) -> Dict[str, Any]:
+        """Current status of the motor."""
+        # TODO: dictionary keys and explanations to the docstring
         return self._status
 
     @property
-    def steps_per_rev(self):
+    def steps_per_rev(self) -> u.steps/u.rev:
+        """The number of steps the motor does per revolution."""
         return self._motor["gearing"]
 
     @property
-    def ip(self):
+    def ip(self) -> str:
+        """IPv4 address for the motor"""
         return self._motor["ip"]
 
     @ip.setter
     def ip(self, value):
+        # TODO: update ipv4_pattern so the port number can be passed with the
+        #       ip argument
         if ipv4_pattern.fullmatch(value) is None:
             raise ValueError(f"Supplied IP address ({value}) is not a valid IPv4.")
 
         self._motor["ip"] = value
 
     @property
-    def port(self):
+    def port(self) -> int:
+        """Port used for motor communication."""
         return self._setup["port"]
 
     @property
     def socket(self) -> socket.socket:
+        """Instance of the socket used for motor communication."""
         return self._setup["socket"]
 
     @socket.setter
@@ -430,25 +646,36 @@ class Motor(BaseActor):
 
     @property
     def tasks(self) -> List[asyncio.Task]:
+        """
+        List of `asyncio.Task`\ s this actor has in the `event loop`_.
+        """
         if self._setup["tasks"] is None:
             self._setup["tasks"] = []
 
         return self._setup["tasks"]
 
     @property
-    def is_moving(self):
+    def is_moving(self) -> bool:
+        """`True` if the motor is actively moving, `False` otherwise."""
         is_moving = self.status["moving"]
         if is_moving is None:
             return False
         return is_moving
 
     @property
-    def position(self):
+    def position(self) -> u.steps:
+        """
+        Current position of the motor, in motor units
+        `~bapsf_motion.utils.steps`.
+        """
         pos = self.send_command("get_position")
-        self.update_status(position=pos)
+        self._update_status(position=pos)
         return pos
 
-    def update_status(self, **values):
+    def _update_status(self, **values):
+        """
+        Update ``self._status` dictionary with the given arguments ``**values``.
+        """
         old_status = self.status.copy()
         new_status = {**old_status, **values}
         changed = {}
@@ -462,7 +689,19 @@ class Motor(BaseActor):
 
         self._status = new_status
 
-    def setup_event_loop(self, loop):
+    def setup_event_loop(self, loop: Optional[asyncio.AbstractEventLoop]):
+        """
+        Set up the `asyncio` `event loop`_.  If the given loop is not an
+        instance of `~asyncio.AbstractEventLoop`, then a new loop will
+        be created.  The `event loop`_ is, then populated with the
+        relevant actor tasks (e.g. ``self._heartbeat()``).
+
+        Parameters
+        ----------
+        loop: `asyncio.AbstractEventLoop`
+            `asyncio` `event loop`_ for the actor's tasks
+
+        """
         # 1. loop is given and running
         #    - store loop
         #    - add tasks
@@ -476,7 +715,7 @@ class Motor(BaseActor):
         # get a valid event loop
         if loop is None:
             loop = asyncio.new_event_loop()
-        elif not isinstance(loop, asyncio.events.AbstractEventLoop):
+        elif not isinstance(loop, asyncio.AbstractEventLoop):
             self.logger.warning(
                 "Given asyncio event is not valid.  Creating a new event loop to use."
             )
@@ -488,6 +727,11 @@ class Motor(BaseActor):
         self.tasks.append(task)
 
     def connect(self):
+        """
+        Open the ethernet connection to the motor.  The number of
+        reconnection attempts before an exception is ratised is defined
+        by ``self._setup["max_connection_attempts"]``.
+        """
         _allowed_attempts = self._setup["max_connection_attempts"]
         for _count in range(_allowed_attempts):
             try:
@@ -501,7 +745,7 @@ class Motor(BaseActor):
                 msg = "...SUCCESS!!!"
                 self.logger.debug(msg)
                 self.socket = s
-                self.update_status(connected=True)
+                self._update_status(connected=True)
                 return
             except (
                 TimeoutError,
@@ -514,6 +758,11 @@ class Motor(BaseActor):
                     self.logger.warning(msg)
                 else:
                     self.logger.error(msg)
+                    # TODO: make this a custom exception (e.g. MotorConnectionError)
+                    #       so other bapsfdaq_motion functionality can respond
+                    #       appropriately...the exception should liekly inherit
+                    #       from TimeoutError, InterruptedError, ConnectionRefusedError,
+                    #       and socket.timeout
                     raise error_
 
         if self._loop is not None:
@@ -521,14 +770,33 @@ class Motor(BaseActor):
             self._configure_motor()
 
     def _send_command(self, command, *args):
+        """
+        A low level method for sending commands to the motor, and
+        receiving the response.
+        """
         cmd_str = self._process_command(command, *args)
         recv_str = self._send_raw_command(cmd_str) if "?" not in cmd_str else cmd_str
         return self._process_command_return(command, recv_str)
 
-    async def _send_command_async(self, command, *args):
+    async def _send_command_async(self, command: str, *args):
+        """A coroutine_ version of :meth:`_send_command`."""
         return self._send_command(command, *args)
 
-    def send_command(self, command, *args):
+    def send_command(self, command: str, *args):
+        """
+        Send ``command`` to the motor, and receive its response.  If the
+        `event loop`_ is running, then the command will be sent as
+        a threadsafe coroutine_ in the loop.  Otherwise, the command
+        will be sent directly to the motor.
+
+        Parameters
+        ----------
+        command: str
+            The desired command to be sent to the motor.
+        *args:
+            Any arguments to the ``command`` that will be sent with the
+            motor command.
+        """
         if self._commands[command]["method_command"]:
             # execute respectively named method
             meth = getattr(self, command)
@@ -542,7 +810,34 @@ class Motor(BaseActor):
             return future.result(5)
         return self._send_command(command, *args)
 
-    def _process_command(self, command: str, *args):
+    def _process_command(self, command: str, *args) -> str:
+        """
+        Process the command ``command`` and any input arguments
+        ``*args`` to and return the full command string.  The
+        argument processor is defined in the class attribute
+        ``self._commands[command]["send_processor"]`` and the base
+        command string is defined at
+        ``self._commands[command]["send"]``.
+
+        Parameters
+        ----------
+        command: str
+            Command to be processed and sent to the motor
+        args
+            Argument for the base command.
+
+        Returns
+        -------
+        str
+            The full command string to be sent to the motor.
+
+        Examples
+        --------
+
+        >>> self._process_command("speed", 5.5)
+        "VE 5.5000"
+
+        """
         cmd_dict = self._commands[command]
         cmd_str = cmd_dict["send"]
 
@@ -571,7 +866,35 @@ class Motor(BaseActor):
 
         return cmd_str + processor(args[0])
 
-    def _process_command_return(self, command: str, rtn_str: str):
+    def _process_command_return(self, command: str, rtn_str: str) -> Any:
+        """
+        Process the returned string from the sent motor command.  The
+        regular expression pattern for matching the returned string
+        is defined in the class attribute
+        ``self._commands[command]["recv"]`` and the argument processor
+        is defined at ``self._commands[command]["recv_processor"]``.
+
+        Parameters
+        ----------
+        command: str
+            The command that was sent to the motor.
+        rtn_str: str
+            The string that was returned by the motor.
+
+        Returns
+        -------
+        Any
+            Returns the argument from the motor's response string.  The
+            argument type is dependent on the receive processor
+            ``self._commands[command]["recv_processor"]``.
+
+        Examples
+        --------
+
+        >>> self._process_command_return("speed", "VE 5.500")
+        5.5
+
+        """
 
         if "%" in rtn_str:
             # Motor acknowledge and executed command.
@@ -605,11 +928,39 @@ class Motor(BaseActor):
         return rtn
 
     def _send_raw_command(self, cmd: str):
+        """
+        Low-level functionality so a command string ``cmd` can be sent
+        directly to the motor.  This is intended for testing purposes
+        and should NOT be used for any high-level functionality.  This
+        allows for sending commands that are ned defined in
+        ``self._commands``.
+
+        Parameters
+        ----------
+        cmd: str
+            A desired command string that is sent to the motor.
+
+        Returns
+        -------
+        str
+            The "unmodified" return string from the motor.
+
+        """
         self._send(cmd)
         data = self._recv()
         return data.decode("ASCII")
 
     def _send(self, cmd: str):
+        """
+        Low-level functionality to send a command string ``cmd`` to
+        the motor.  Proper headers and end-of-message (eom) blocks are
+        added to the command string.
+
+        Parameters
+        ----------
+        cmd: str
+            The command str to be sent to the motor.
+        """
         # all messages sent or received over TCP/UDP for Applied Motion Motors
         # use a byte header b'\x00\x07' and end-of-message b'\r'
         # (carriage return)
@@ -620,11 +971,22 @@ class Motor(BaseActor):
         try:
             self.socket.send(cmd_str)
         except ConnectionError:
-            self.update_status(connected=False)
+            self._update_status(connected=False)
             self.connect()
             self.socket.send(cmd_str)
 
-    def _recv(self):
+    def _recv(self) -> AnyStr:
+        """
+        Receives messages/strings from the motor.  Proper headers and
+        end-of-message blocks are removed from the received string, and
+        then returned.
+
+        Returns
+        -------
+        byte string
+            Trimmed byte string from the motor response.
+
+        """
         # all messages sent or received over TCP/UDP for Applied Motion Motors
         # use a byte header b'\x00\x07' and end-of-message b'\r'
         # (carriage return)
@@ -647,6 +1009,20 @@ class Motor(BaseActor):
         return msg
 
     def retrieve_motor_status(self, direct_send=False):
+        """
+        Retrieve motor status and update ``self._status``.
+
+        Parameters
+        ----------
+        direct_send: bool
+            If `True`, then the motor commands will bypass any active
+            `event loop`_ and be directly sent to the motor.  If
+            `False`, then all motor commands will be routed through the
+            :meth:`send_command` method. (DEFAULT: `False`)
+
+        """
+        # TODO: How to document all the statuses that get updated with this method?
+        #
         # this is done so self._heartbeat can directly send commands since
         # the heartbeat is already running in the event loop
         send_command = self._send_command if direct_send else self.send_command
@@ -700,9 +1076,29 @@ class Motor(BaseActor):
         elif not _status["moving"] and self._status["moving"]:
             self.movement_finished.emit(True)
 
-        self.update_status(**_status)
+        self._update_status(**_status)
 
-    def retrieve_motor_alarm(self, defer_status_update=False, direct_send=False):
+    def retrieve_motor_alarm(self, defer_status_update=False, direct_send=False) -> str:
+        """
+        Retrieve [if any] motor alarm codes.
+
+        Parameters
+        ----------
+        defer_status_update: bool
+            If `True`, then do NOT update ``self._status``.
+            (DEFAULT: `False`)
+
+        direct_send: bool
+            If `True`, then the motor commands will bypass any active
+            `event loop`_ and be directly sent to the motor.  If
+            `False`, then all motor commands will be routed through the
+            :meth:`send_command` method. (DEFAULT: `False`)
+
+        Returns
+        -------
+        str
+            Alarm message.
+        """
         # this is done so self._heartbeat can directly send commands since
         # the heartbeat is already running in the event loop
         send_command = self._send_command if direct_send else self.send_command
@@ -728,19 +1124,31 @@ class Motor(BaseActor):
             self.logger.error(f"Motor returned alarm(s): {alarm_message}")
 
         if not defer_status_update and alarm_message:
-            self.update_status(alarm_message=alarm_message)
+            self._update_status(alarm_message=alarm_message)
 
         return alarm_message
 
     def enable(self):
+        """Enable motor (i.e. restore drive current to motor)."""
         self.send_command("enable")
         self.send_command("retrieve_motor_status")
 
     def disable(self):
+        """Disable motor (i.e. reduce motor current to zero)."""
         self.send_command("disable")
         self.send_command("retrieve_motor_status")
 
     async def _heartbeat(self):
+        """
+        :ref:`Coroutine <coroutine>` for the heartbeat monitor of the
+        motor.  The heartbeat will update the motor statuss via
+        :meth:`retrieve_motor_status` at an interval given by
+        :attr:`heartrate`.
+
+        See Also
+        --------
+        retrieve_motor_status
+        """
         old_HR = self.heartrate.base
         beats = 0
         while True:
@@ -760,6 +1168,12 @@ class Motor(BaseActor):
             await asyncio.sleep(heartrate)
 
     def run(self):
+        """
+        Activate the `asyncio` `event loop`_.   If the event loop is
+        running, then nothing happens.  Otherwise, the event loop is
+        placed in a separate thread and set to
+        `~asyncio.loop.run_forever`.
+        """
         if self._loop.is_running():
             return
 
@@ -767,6 +1181,21 @@ class Motor(BaseActor):
         self._thread.start()
 
     def stop_running(self, delay_loop_stop=False):
+        """
+        Stop the actor's `event loop`_\ .  All actor tasks will be
+        cancelled, the connection to the motor will be shutdown, and
+        the event loop will be stopped.
+
+        Parameters
+        ----------
+        delay_loop_stop: bool
+            If `True`, then do NOT stop the `event loop`_\ .  In this
+            case it is assumed the calling functionality is managing
+            additional tasks in the event loop, and it is up to that
+            functionality to stop the loop.  (DEFAULT: `False`)
+
+        """
+        # TODO: add additional motor shutdown tasks (i.e. stop and disable)
         for task in list(self.tasks):
             task.cancel()
             self.tasks.remove(task)
@@ -782,9 +1211,18 @@ class Motor(BaseActor):
         self._loop.call_soon_threadsafe(self._loop.stop)
 
     def stop(self):
+        """Stop motor movement."""
         self.send_command("stop")
 
-    def move_to(self, pos):
+    def move_to(self, pos: int):
+        """
+        Move the motor to a specified location.
+
+        Parameters
+        ----------
+        pos: int
+            Position (in steps) for the motor to move to.
+        """
         if self.status["alarm"]:
             self.send_command("alarm_rest")
             time.sleep(1.2 * self.heartrate.active)
