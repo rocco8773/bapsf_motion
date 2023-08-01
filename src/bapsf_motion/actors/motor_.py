@@ -1,5 +1,5 @@
 
-__all__ = ["Motor"]
+__all__ = ["do_nothing", "CommandEntry", "Motor"]
 
 import asyncio
 import logging
@@ -8,142 +8,162 @@ import socket
 import threading
 import time
 
-from collections import namedtuple
-from typing import Any, Dict, List, Optional
+from collections import namedtuple, UserDict
+from typing import Any, Callable, Dict, List, Optional, Union
 
+from bapsf_motion.actors.base import BaseActor
 from bapsf_motion.utils import ipv4_pattern, SimpleSignal
+from bapsf_motion.utils import units as u
 
 
-class Motor:
-    # : parameters that define the setup of the Motor class (actual motor settings
-    # should be defined in _motor)
-    _setup = {
-        "name": "",
-        "logger": None,
-        "loop": None,
-        "thread": None,
-        "socket": None,
-        "tasks": None,
-        "max_connection_attempts": 3,
-        "heartrate": namedtuple("HR", ["base", "active"])(
-            base=2, active=0.2
-        ),  # in seconds
-        "port": 7776,  # 7776 is Applied Motion's TCP port, 7775 is the UDP port
-    }    # type: Dict[str, Any]
+def do_nothing(x):
+    return x
 
-    #: these are setting that determine the motor parameters
-    _motor = {
-        "ip": None,
-        "manufacturer": "Applied Motion Products",
-        "model": "STM23S-3EE",
-        "gearing": None,  # steps/rev
-        "encoder_resolution": None,  # counts/rev
-        "DEFAULTS": {
-            "speed": 12.5,
-            "accel": 25,
-            "decel": 25,
-        },
-        "speed": None,
-        "accel": None,
-        "decel": None,
-        "protocol_settings": None,
-    }  # type: Dict[str, Any]
 
-    #: these are parameters that define the current state of the motor
-    _status = {
-        "connected": False,
-        "position": None,
-        "alarm": None,
-        "enabled": None,
-        "fault": None,
-        "moving": None,
-        "homing": None,
-        "jogging": None,
-        "motion_in_progress": None,
-        "in_position": None,
-        "stopping": None,
-        "waiting": None,
-    }  # type: Dict[str, Any]
+class CommandEntry(UserDict):
+    def __init__(
+        self,
+        command: str,
+        *,
+        send: str,
+        send_processor: Optional[Callable] = None,
+        recv: Optional[re.Pattern] = None,
+        recv_processor: Optional[Callable] = do_nothing,
+        two_way: bool = False,
+        units: Union[str, u.Unit, None] = None,
+        method_command: Optional[bool] = False,
+    ):
+        self._command = command
 
-    #: simple signal to tell handlers that _status changed
-    status_changed = SimpleSignal()
-    movement_started = SimpleSignal()
-    movement_finished = SimpleSignal()
+        _dict = {
+            "two_way": False,
+            "method_command": method_command,
+        }
+        if not method_command:
+            _dict = {
+                "send": send,
+                "send_processor": send_processor,
+                "recv": recv,
+                "recv_processor": recv_processor,
+                "two_way": two_way,
+                "units": units,
+                "method_command": method_command,
+            }
+        else:
+            _dict = {
+                "two_way": False,
+                "units": units,
+                "method_command": method_command,
+            }
+        super().__init__(**_dict)
 
+    @property
+    def command(self):
+        return self._command
+
+
+class Motor(BaseActor):
     #: available commands that can be sent to the motor
     _commands = {
-        "acceleration": {
-            "send": "AC",
-            "send_processor": lambda value: f"{float(value):.3f}",
-            "recv": re.compile(r"AC=(?P<return>[0-9]+\.?[0-9]*)"),
-            "recv_processor": float,
-            "two_way": True,
-        },
-        "alarm": {
-            "send": "AL",
-            "recv": re.compile(r"AL=(?P<return>[0-9]{4})"),
-        },
-        "alarm_reset": {
-            "senf": "AR",
-            "recv": None,
-        },
-        "deceleration": {
-            "send": "DE",
-            "send_processor": lambda value: f"{float(value):.3f}",
-            "recv": re.compile(r"DE=(?P<return>[0-9]+\.?[0-9]*)"),
-            "recv_processor": float,
-            "two_way": True,
-        },
-        "disable": {"send": "MD", "recv": None},
-        "enable": {"send": "ME", "recv": None},
-        "encoder_resolution": {
-            "send": "ER",
-            "recv": re.compile(r"ER=(?P<return>[0-9]+)"),
-            "recv_processor": int,
-        },
-        "feed": {
-            "send": "FP",
-            "recv": None,
-        },
-        "gearing": {
-            "send": "EG",
-            "recv": re.compile(r"EG=(?P<return>[0-9]+)"),
-            "recv_processor": int,
-        },
-        "get_position": {
-            "send": "IP",
-            "recv": re.compile(r"IP=(?P<return>-?[0-9]+)"),
-            "recv_processor": int,
-        },
-        "move_to": None,
-        "protocol": {
-            "send": "PR",
-            "send_processor": lambda value: f"{int(value)}",
-            "recv": re.compile(r"PR=(?P<return>[0-9]{1,3})"),
-            "recv_processor": int,
-            "two_way": True,
-        },
-        "request_status": {
-            "send": "RS",
-            "recv": re.compile(r"RS=(?P<return>[ADEFHJMPRSTW]+)"),
-        },
-        "retrieve_motor_alarm": None,
-        "retrieve_motor_status": None,
-        "speed": {
-            "send": "VE",
-            "send_processor": lambda value: f"{float(value):.4f}",
-            "recv": re.compile(r"VE=(?P<return>[0-9]+\.?[0-9]*)"),
-            "recv_processor": float,
-            "two_way": True,
-        },
-        "stop": {"send": "SK", "recv": None},
-        "target_distance": {
-            "send": "DI",
-            "send_processor": lambda value: f"{int(value)}",
-            "recv": re.compile(r"DI=(?P<return>[0-9]+)"),
-            "recv_processor": int,
-            "two_way": True,
-        },
+        "acceleration": CommandEntry(
+            "a«acceleration",
+            send="AC",
+            send_processor=lambda value: f"{float(value):.3f}",
+            recv=re.compile(r"AC=(?P<return>[0-9]+\.?[0-9]*)"),
+            recv_processor=float,
+            two_way=True,
+            units=u.rev / u.s / u.s,
+        ),
+        "alarm": CommandEntry(
+            "alarm",
+            send="AL",
+            recv=re.compile(r"AL=(?P<return>[0-9]{4})"),
+        ),
+        "alarm_reset": CommandEntry(
+            "alarm_reset",
+            send="AR"
+        ),
+        "deceleration": CommandEntry(
+            "deceleration",
+            send="DE",
+            send_processor=lambda value: f"{float(value):.3f}",
+            recv=re.compile(r"DE=(?P<return>[0-9]+\.?[0-9]*)"),
+            recv_processor=float,
+            two_way=True,
+            units=u.rev / u.s / u.s,
+        ),
+        "disable": CommandEntry("disable", send="MD"),
+        "enable": CommandEntry("enable", send="ME"),
+        "encoder_resolution": CommandEntry(
+            "encoder_resolution",
+            send="ER",
+            recv=re.compile(r"ER=(?P<return>[0-9]+)"),
+            recv_processor=int,
+            units=u.counts / u.rev,
+        ),
+        "feed": CommandEntry("feed", send="FP"),
+        "gearing": CommandEntry(
+            "gearing",
+            send="EG",
+            recv=re.compile(r"EG=(?P<return>[0-9]+)"),
+            recv_processor=int,
+            units=u.steps / u.rev,
+        ),
+        "get_position": CommandEntry(
+            "get_position",
+            send="IP",
+            recv=re.compile(r"IP=(?P<return>-?[0-9]+)"),
+            recv_processor=int,
+            units=u.steps,
+        ),
+        "move_to": CommandEntry(
+            "move_to",
+            send="",
+            units=u.steps,
+            method_command=True,
+        ),
+        "protocol": CommandEntry(
+            "protocol",
+            send="PR",
+            send_processor=lambda value: f"{int(value)}",
+            recv=re.compile(r"PR=(?P<return>[0-9]{1,3})"),
+            recv_processor=int,
+            two_way=True,
+        ),
+        "request_status": CommandEntry(
+            "request_status",
+            send="RS",
+            recv=re.compile(r"RS=(?P<return>[ADEFHJMPRSTW]+)"),
+        ),
+        "retrieve_motor_alarm": CommandEntry(
+            "retrieve_motor_alarm",
+            send="",
+            method_command=True,
+        ),
+        "retrieve_motor_status": CommandEntry(
+            "retrieve_motor_status",
+            send="",
+            method_command=True,
+        ),
+        "speed": CommandEntry(
+            "speed",
+            send="VE",
+            send_processor=lambda value: f"{float(value):.4f}",
+            recv=re.compile(r"VE=(?P<return>[0-9]+\.?[0-9]*)"),
+            recv_processor=float,
+            two_way=True,
+            units=u.rev / u.s,
+        ),
+        "stop": CommandEntry("stop", send="SK"),
+        "target_distance": CommandEntry(
+            "target_distance",
+            send="DI",
+            send_processor=lambda value: f"{int(value)}",
+            recv=re.compile(r"DI=(?P<return>[0-9]+)"),
+            recv_processor=int,
+            two_way=True,
+            units=u.steps,
+        ),
     }  # type: Dict[str, Optional[Dict[str, Any]]]
 
     #: mapping of motor alarm codes to their descriptive message (specific to STM motors)
@@ -215,7 +235,10 @@ class Motor:
         loop=None,
         auto_start=False,
     ):
-        self.setup_logger(logger, name)
+        self._init_instance_variables()
+
+        super().__init__(name=name, logger=logger)
+
         self.ip = ip
         self.connect()
 
@@ -228,6 +251,62 @@ class Motor:
 
         if auto_start:
             self.run()
+
+    def _init_instance_variables(self):
+        # : parameters that define the setup of the Motor class (actual motor settings
+        # should be defined in _motor)
+        self._setup = {
+            "name": "",
+            "logger": None,
+            "loop": None,
+            "thread": None,
+            "socket": None,
+            "tasks": None,
+            "max_connection_attempts": 3,
+            "heartrate": namedtuple("HR", ["base", "active"])(
+                base=2, active=0.2
+            ),  # in seconds
+            "port": 7776,  # 7776 is Applied Motion's TCP port, 7775 is the UDP port
+        }  # type: Dict[str, Any]
+
+        #: these are setting that determine the motor parameters
+        self._motor = {
+            "ip": None,
+            "manufacturer": "Applied Motion Products",
+            "model": "STM23S-3EE",
+            "gearing": None,  # steps/rev
+            "encoder_resolution": None,  # counts/rev
+            "DEFAULTS": {
+                "speed": 12.5,
+                "accel": 25,
+                "decel": 25,
+            },
+            "speed": None,
+            "accel": None,
+            "decel": None,
+            "protocol_settings": None,
+        }  # type: Dict[str, Any]
+
+        #: these are parameters that define the current state of the motor
+        self._status = {
+            "connected": False,
+            "position": None,
+            "alarm": None,
+            "enabled": None,
+            "fault": None,
+            "moving": None,
+            "homing": None,
+            "jogging": None,
+            "motion_in_progress": None,
+            "in_position": None,
+            "stopping": None,
+            "waiting": None,
+        }  # type: Dict[str, Any]
+
+        #: simple signal to tell handlers that _status changed
+        self.status_changed = SimpleSignal()
+        self.movement_started = SimpleSignal()
+        self.movement_finished = SimpleSignal()
 
     def _configure_motor(self):
         self._send_raw_command("IFD")  # set format of immediate commands to decimal
@@ -320,6 +399,10 @@ class Motor:
         return self._status
 
     @property
+    def steps_per_rev(self):
+        return self._motor["gearing"]
+
+    @property
     def ip(self):
         return self._motor["ip"]
 
@@ -379,13 +462,6 @@ class Motor:
 
         self._status = new_status
 
-    def setup_logger(self, logger, name):
-        log_name = __name__ if logger is None else logger.name
-        if name is not None:
-            log_name += f".{name}"
-            self.name = name
-        self.logger = logging.getLogger(log_name)
-
     def setup_event_loop(self, loop):
         # 1. loop is given and running
         #    - store loop
@@ -440,6 +516,10 @@ class Motor:
                     self.logger.error(msg)
                     raise error_
 
+        if self._loop is not None:
+            self._get_motor_parameters()
+            self._configure_motor()
+
     def _send_command(self, command, *args):
         cmd_str = self._process_command(command, *args)
         recv_str = self._send_raw_command(cmd_str) if "?" not in cmd_str else cmd_str
@@ -449,7 +529,7 @@ class Motor:
         return self._send_command(command, *args)
 
     def send_command(self, command, *args):
-        if self._commands[command] is None:
+        if self._commands[command]["method_command"]:
             # execute respectively named method
             meth = getattr(self, command)
             return meth(*args)
@@ -466,11 +546,10 @@ class Motor:
         cmd_dict = self._commands[command]
         cmd_str = cmd_dict["send"]
 
-        try:
-            processor = self._commands[command]["send_processor"]
-        except KeyError:
-            # If the "send_processor" key is not defined, then it is
-            # assumed no values need to be sent with the command.
+        processor = self._commands[command]["send_processor"]
+        if processor is None:
+            # If "send_processor" is None, then it is assumed no values
+            # need to be sent with the command.
             if len(args):
                 self.logger.error(
                     f"Command '{command}' requires 0 arguments to send, "
@@ -516,13 +595,14 @@ class Motor:
         if recv_pattern is not None:
             rtn_str = recv_pattern.fullmatch(rtn_str).group("return")
 
-        try:
-            processor = self._commands[command]["recv_processor"]
-            return processor(rtn_str)
-        except KeyError:
-            # If the "recv_processor" key is not defined, then it is
-            # assumed the string is just to be passed back.
-            return rtn_str
+        processor = self._commands[command]["recv_processor"]
+        rtn = processor(rtn_str)
+
+        units = self._commands[command]["units"]
+        if units is not None:
+            return rtn * units
+
+        return rtn
 
     def _send_raw_command(self, cmd: str):
         self._send(cmd)
@@ -686,7 +766,7 @@ class Motor:
         self._thread = threading.Thread(target=self._loop.run_forever)
         self._thread.start()
 
-    def stop_running(self):
+    def stop_running(self, delay_loop_stop=False):
         for task in list(self.tasks):
             task.cancel()
             self.tasks.remove(task)
@@ -695,6 +775,9 @@ class Motor:
             self.socket.close()
         except AttributeError:
             pass
+
+        if delay_loop_stop:
+            return
 
         self._loop.call_soon_threadsafe(self._loop.stop)
 
