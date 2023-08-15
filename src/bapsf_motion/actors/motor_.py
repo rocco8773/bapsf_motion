@@ -10,6 +10,7 @@ import logging
 import re
 import socket
 import threading
+import time
 
 from collections import namedtuple, UserDict
 from typing import Any, AnyStr, Callable, Dict, List, NamedTuple, Optional, Union
@@ -249,6 +250,14 @@ class Motor(BaseActor):
             two_way=True,
             units=u.rev / u.s / u.s,
         ),
+        "define_limits": CommandEntry(
+            "define_limits",
+            send="DL",
+            send_processor=lambda value: f"{int(value)}",
+            recv=re.compile(r"DL=(?P<return>[0-9])"),
+            recv_processor=int,
+            two_way=True,
+        ),
         "disable": CommandEntry("disable", send="MD"),
         "enable": CommandEntry("enable", send="ME"),
         "encoder_resolution": CommandEntry(
@@ -272,6 +281,11 @@ class Motor(BaseActor):
             recv=re.compile(r"IP=(?P<return>-?[0-9]+)"),
             recv_processor=int,
             units=u.steps,
+        ),
+        "move_off_limit": CommandEntry(
+            "move_off_limit",
+            send="",
+            method_command=True,
         ),
         "move_to": CommandEntry(
             "move_to",
@@ -471,6 +485,10 @@ class Motor(BaseActor):
             "in_position": None,
             "stopping": None,
             "waiting": None,
+            "limit": {
+                "CW": False,
+                "CCW": False,
+            },
         }  # type: Dict[str, Any]
 
         #: simple signal to tell handlers that _status changed
@@ -495,7 +513,7 @@ class Motor(BaseActor):
         # input is closed (energized)
         # TODO: Replace with normal send_command when "define_limits" command
         #       is added to _commands dict
-        self._send_raw_command("DL1")
+        self.send_command("define_limits", 1)
 
         # set format of immediate commands to decimal
         self._send_raw_command("IFD")
@@ -1100,11 +1118,11 @@ class Motor(BaseActor):
         pos = send_command("get_position")
         _status["position"] = pos
 
-        if _status["alarm"]:
-            _status["alarm_message"] = self.retrieve_motor_alarm(
-                defer_status_update=True,
-                direct_send=True,
-            )
+        alarm_status = self.retrieve_motor_alarm(
+            defer_status_update=True,
+            direct_send=True,
+        )
+        _status.update(alarm_status)
 
         if _status["moving"] and not self._status["moving"]:
             self.movement_started.emit(True)
@@ -1113,7 +1131,9 @@ class Motor(BaseActor):
 
         self._update_status(**_status)
 
-    def retrieve_motor_alarm(self, defer_status_update=False, direct_send=False) -> str:
+    def retrieve_motor_alarm(
+            self, defer_status_update=False, direct_send=False
+    ) -> Dict[str, Any]:
         """
         Retrieve [if any] motor alarm codes.
 
@@ -1131,8 +1151,8 @@ class Motor(BaseActor):
 
         Returns
         -------
-        str
-            Alarm message.
+        Dict[str, Any]
+            Alarm status.
         """
         # this is done so self._heartbeat can directly send commands since
         # the heartbeat is already running in the event loop
@@ -1155,13 +1175,21 @@ class Motor(BaseActor):
 
         alarm_message = " :: ".join(alarm_message)
 
-        if alarm_message:
+        if rtn != "0000":
             self.logger.error(f"Motor returned alarm(s): {alarm_message}")
 
-        if not defer_status_update and alarm_message:
-            self._update_status(alarm_message=alarm_message)
+        alarm_status = {
+            "alarm_message": alarm_message,
+            "limits": {
+                "CCW": True if 2 in codes else False,
+                "CW": True if 4 in codes else False,
+            },
+        }
 
-        return alarm_message
+        if not defer_status_update:
+            self._update_status(**alarm_status)
+
+        return alarm_status
 
     def enable(self):
         """Enable motor (i.e. restore drive current to motor)."""
@@ -1261,10 +1289,10 @@ class Motor(BaseActor):
         if self.status["alarm"]:
             self.send_command("alarm_reset")
             alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
-            # time.sleep(0.5 * self.heartrate.base)
 
-            if alarm_msg:
-                self.logger.error("Motor alarm could not be rest.")
+            if alarm_msg["alarm_message"]:
+                self.logger.error(
+                    f"Motor alarm could not be reset. -- {alarm_msg}")
                 return
 
         # Note:  The Applied Motion Command Reference pdf states for
@@ -1276,3 +1304,82 @@ class Motor(BaseActor):
         self.send_command("target_distance", pos)
         self.send_command("feed")
         self.send_command("retrieve_motor_status")
+
+    def move_off_limit(self):
+        """
+        Try to move the motor off of a CW or CCW limit switch.
+        """
+
+        # TODO: There could still be a more efficient and safe way to do
+        #       this...should contemplate
+
+        # are we on a limit?
+        if not any(self.status["limits"].values()):
+            self.logger.debug(f"Motor is NOT on a limit, doing nothing.")
+            return
+        elif all(self.status["limits"].values()):
+            self.logger.error(
+                "Both CW and CCW limits activated, can not do anything."
+            )
+            return
+
+        off_direction = -1 if self.status["limits"]["CW"] else 1
+
+        counts = 1
+        on_limits = any(self.status["limits"].values())
+        while on_limits:
+
+            pos = self.send_command("get_position").value
+            move_to_pos = pos + off_direction * 0.5 * self.steps_per_rev.value
+
+            # disable limit alarm so the motor can be moved
+            self.logger.warning("Moving off limits - disable limits")
+            self.send_command("define_limits", 3)
+            self.send_command("alarm_reset")
+
+            self.move_to(move_to_pos)
+
+            self.logger.warning("Moving off limits - enable limits")
+            self.send_command("define_limits", 1)
+            self.sleep(4 * self.heartrate.active)
+
+            alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
+            on_limits = any(alarm_msg["limits"].values())
+
+            if counts > 10:
+                self.logger.error(
+                    "Moving off limits - Was not able to move of limit."
+                )
+                break
+
+            counts += 1
+
+    @staticmethod
+    async def _sleep_async(delay):
+        """Asyncio coroutine so :meth:`sleep` can do an async sleep."""
+        await asyncio.sleep(delay)
+
+    def sleep(self, delay):
+        """
+        Sleep for X seconds defined by ``delay``.  The routine is smart
+        enough to know if the event loop is running or not.  If the
+        event loop is not running the sleep will be issued via
+        `time.sleep`, otherwise it will leverage `asyncio.sleep`.
+
+        Parameters
+        ----------
+        delay: ~numbers.Real
+            Number of seconds to sleep.
+        """
+        if not self._loop.is_running():
+            time.sleep(delay)
+        elif threading.current_thread().ident == self._thread_id:
+            tk = self._loop.create_task(self._sleep_async(delay))
+            self._loop.run_until_complete(tk)
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._sleep_async(delay),
+            self._loop
+        )
+        future.result(5)
+
