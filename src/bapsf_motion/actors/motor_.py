@@ -7,6 +7,7 @@ __actors__ = ["Motor"]
 
 import asyncio
 import logging
+import numpy as np
 import re
 import socket
 import threading
@@ -241,6 +242,14 @@ class Motor(BaseActor):
             "alarm_reset",
             send="AR"
         ),
+        "current": CommandEntry(
+            "change_current",
+            send="CC",
+            send_processor=lambda value: f"{float(value):.1f}",
+            recv=re.compile(r"CC=(?P<return>[0-9]\.?[0-9]?)"),
+            recv_processor=float,
+            two_way=True,
+        ),
         "deceleration": CommandEntry(
             "deceleration",
             send="DE",
@@ -260,6 +269,15 @@ class Motor(BaseActor):
         ),
         "disable": CommandEntry("disable", send="MD"),
         "enable": CommandEntry("enable", send="ME"),
+        "encoder_position":  CommandEntry(
+            "encoder_position",
+            send="EP",
+            send_processor=lambda value: f"{int(value)}",
+            recv=re.compile(r"EP=(?P<return>[0-9]+)"),
+            recv_processor=int,
+            two_way=True,
+            units=u.counts,
+        ),
         "encoder_resolution": CommandEntry(
             "encoder_resolution",
             send="ER",
@@ -276,11 +294,19 @@ class Motor(BaseActor):
             units=u.steps / u.rev,
         ),
         "get_position": CommandEntry(
-            "get_position",
+            "immediate_position",
             send="IP",
             recv=re.compile(r"IP=(?P<return>-?[0-9]+)"),
             recv_processor=int,
             units=u.steps,
+        ),
+        "idle_current": CommandEntry(
+            "change_idle_current",
+            send="CI",
+            send_processor=lambda value: f"{float(value):.1f}",
+            recv=re.compile(r"CI=(?P<return>[0-9]\.?[0-9]?)"),
+            recv_processor=float,
+            two_way=True,
         ),
         "move_off_limit": CommandEntry(
             "move_off_limit",
@@ -306,6 +332,11 @@ class Motor(BaseActor):
             send="RS",
             recv=re.compile(r"RS=(?P<return>[ADEFHJMPRSTW]+)"),
         ),
+        "reset_currents": CommandEntry(
+            "reset_currents",
+            send="",
+            method_command=True,
+        ),
         "retrieve_motor_alarm": CommandEntry(
             "retrieve_motor_alarm",
             send="",
@@ -315,6 +346,31 @@ class Motor(BaseActor):
             "retrieve_motor_status",
             send="",
             method_command=True,
+        ),
+        "set_current": CommandEntry(
+            "set_current",
+            send="",
+            method_command=True,
+        ),
+        "set_idle_current": CommandEntry(
+            "set_idle_current",
+            send="",
+            method_command=True,
+        ),
+        "set_position": CommandEntry(
+            "set_position",
+            send="",
+            method_command=True,
+            units=u.steps,
+        ),
+        "set_position_SP": CommandEntry(
+            "set_position_SP",
+            send="SP",
+            send_processor=lambda value: f"{int(value)}",
+            recv=re.compile(r"SP=(?P<return>[0-9]+)"),
+            recv_processor=int,
+            two_way=True,
+            units=u.steps,
         ),
         "speed": CommandEntry(
             "speed",
@@ -333,6 +389,12 @@ class Motor(BaseActor):
             recv=re.compile(r"DI=(?P<return>[0-9]+)"),
             recv_processor=int,
             two_way=True,
+            units=u.steps,
+        ),
+        "zero": CommandEntry(
+            "zero",
+            send="",
+            method_command=True,
             units=u.steps,
         ),
     }  # type: Dict[str, Optional[Dict[str, Any]]]
@@ -464,6 +526,10 @@ class Motor(BaseActor):
                 "speed": 12.5,
                 "accel": 25,
                 "decel": 25,
+                "idle_current": 0.3,  # 30% of current
+                "current": 4.0,  # 4.0 amps
+                "max_idle_current": .9,  # 90% of current
+                "max_current": 5.0  # 5 amps
             },
             "speed": None,
             "accel": None,
@@ -1383,3 +1449,118 @@ class Motor(BaseActor):
         )
         future.result(5)
 
+    def set_current(self, percent):
+        r"""
+        Set the peak current setting ("peak of sine") of the stepper
+        drive, also known as the running current.  The value given
+        is a fraction of 0-1 of the peak allowable current defined
+        in  ``_motor["DEFAULTS"]["max_current"]``.
+
+        Setting the running current can affect the idle current, since
+        the max idle current is 90% of the running current.
+
+        Parameters
+        ----------
+        percent: `float`
+            A value of 0 - 1 specifying a fraction of the max running
+            current to set the running current to.  For example,
+            ``0.5`` will set the running current to 50% of the max
+            allowable running current
+            (``_motor["DEFAULTS"]["max_current"]``).
+        """
+        if not isinstance(percent, (int, float)):
+            self.logger.error(
+                f"Setting motor current, expected a value of 0 - 1 "
+                f"but got type {type(percent)}."
+            )
+            return
+        elif not (0 <= percent <= 1):
+            self.logger.error(
+                f"Setting motor current, expected a value of 0 - 1 "
+                f"but got {percent}."
+            )
+            return
+
+        new_cur = percent * self._motor["DEFAULTS"]["max_current"]
+
+        ic = self.send_command("idle_current")
+        new_ic = np.min(
+            [self._motor["DEFAULTS"]["max_idle_current"] * new_cur, ic],
+        )
+
+        self.send_command("current", new_cur)
+        self.send_command("idle_current", new_ic)
+
+    def set_idle_current(self, percent):
+        r"""
+        Set the motor's idle current.  The idle current is the current
+        supplied to the stepper motors when the motor is not moving.
+        The value given is a fraction 0 - 0.9 of the running current.
+
+        Parameters
+        ----------
+        percent: `float`
+            A value of 0 - 0.9 specifying a fraction of the running
+            current to set the idle current to.  For example,
+            ``0.5`` will set the idle current to 50% of the running
+            current.
+        """
+        max_idle = self._motor["DEFAULTS"]["max_idle_current"]
+        if not isinstance(percent, (int, float)):
+            self.logger.error(
+                f"Setting motor idle current, expected a value of 0 - {max_idle} "
+                f"but got type {type(percent)}."
+            )
+            return
+        elif not (0 <= percent <= max_idle):
+            self.logger.warning(
+                f"Setting motor idle current, expected a value of 0 - {max_idle} "
+                f"but got {percent}.  Using {max_idle}."
+            )
+            percent = max_idle
+
+        curr = self.send_command("current")
+        new_ic = percent * curr
+        self.send_command("idle_current", new_ic)
+
+    def reset_currents(self):
+        """
+        Reset running and idle currents to their default values.
+        """
+        curr = self._motor["DEFAULTS"]["current"]
+        new_ic = self._motor["DEFAULTS"]["idle_current"] * curr
+
+        self.send_command("current", curr)
+        self.send_command("idle_current", new_ic)
+
+    def set_position(self, pos):
+        """
+        Set current motor's absolute position to a value specified by
+        ``pos``.
+
+        pos: `int`
+            An integer in the range of +/- 2,147,483,647 to set the
+            motor's absolute position.
+        """
+        if not isinstance(pos, int):
+            self.logger.error(
+                f"Setting motor position, expect int between"
+                f" +/- 2,147,483,647 but got type {type(pos)}."
+            )
+            return
+
+        # set high torque
+        ic = self.send_command("idle_current")
+        curr = self.send_command("current")
+        self.set_current(1)
+        self.set_idle_current(self._motor["DEFAULTS"]["max_idle_current"])
+
+        self.send_command("encoder_position", pos)
+        self.send_command("set_position_SP", pos)
+
+        self.send_command("current", curr)
+        self.send_command("idle_current", ic)
+
+    def zero(self):
+        """Define current motor position as zero."""
+        self.set_position(0)
