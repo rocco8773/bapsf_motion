@@ -2,6 +2,7 @@
 Module that defines the `LaPDXYExclusion` class.
 """
 __all__ = ["LaPDXYExclusion"]
+__mexclusions__ = ["LaPDXYExclusion"]
 
 import numpy as np
 import xarray as xr
@@ -22,7 +23,7 @@ class LaPDXYExclusion(BaseExclusion):
     :term:`motion space`.  This class setups up the typical XY
     exclusion layer for a probe installed on a LaPD ball valve.
 
-    **exclusion type:** ``'lapd-XY'``
+    **exclusion type:** ``'lapd_xy'``
 
     Parameters
     ----------
@@ -59,67 +60,81 @@ class LaPDXYExclusion(BaseExclusion):
     Examples
     --------
 
+    .. note::
+       The following examples include examples for direct instantiation,
+       as well as configuration passing at the |MotionGroup| and
+       |Manager| levels.
+
     Assume we have a 2D motion space and want to create the default
     exclusion for a probe deployed on the East port.  This would look
     like:
 
-    .. code-block:: python
+    .. tabs::
+       .. code-tab:: py Class Instantiation
 
-        el = LaPDXYExclusion(ds)
+          el = LaPDXYExclusion(ds)
 
-    Now, as down with the factory function
+       .. code-tab:: py Factory Function
 
-    .. code-block:: python
+          el = exclusion_factory(
+              ds,
+              ex_type = "lapd_xy",
+          )
 
-        el = exclusion_factor(
-            ds,
-            ex_layer = "lapd-XY",
-        )
+       .. code-tab:: toml TOML
 
-    Now, as a TOML configuration
+          [...motion_list.exclusions]
+          type = "lapd_xy"
 
-    .. code-block:: toml
+       .. code-tab:: py Dict Entry
 
-        [...exclusions.0]
-        type = "lapd-XY"
+          config["motion_list"]["exclusions"] = {
+              "type": "lapd_xy",
+          }
 
     Now, lets deploy a probe on a West port using a ball valve with
     a narrower cone and a more restrictive chamber diameters.
 
-    .. code-block:: python
+    .. tabs::
+       .. code-tab:: py Class Instantiation
 
-        el = LaPDXYExclusion(
-            ds,
-            diameter = 60,
-            port_location = "W",
-            cone_full_angle = " 60,
-        )
+          el = LaPDXYExclusion(
+              ds,
+              diameter = 60,
+              port_location = "W",
+              cone_full_angle = 60,
+          )
 
-    Now, as down with the factory function
+       .. code-tab:: py Factory Function
 
-    .. code-block:: python
+          el = exclusion_factory(
+              ds,
+              ex_type = "lapd_xy",
+              **{
+                  "diameter": 60,
+                  "port_location": "W",
+                  "cone_full_angle": 60,
+              },
+          )
 
-        el = exclusion_factor(
-            ds,
-            ex_layer = "lapd-XY",
-            **{
-                "diameter": 60,
-                "port_location": "W",
-                "cone_full_angle": 60,
-            },
-        )
+       .. code-tab:: toml TOML
 
-    Now, as a TOML configuration
+          [...motion_list.exclusions]
+          type = "lapd_xy"
+          diameter = 60
+          port_location = "W"
+          cone_full_angle = 60
 
-    .. code-block:: toml
+       .. code-tab:: py Dict Entry
 
-        [...exclusions.0]
-        type = "lapd-XY"
-        diameter = 60,
-        port_location = "W"
-        cone_full_angle = 60
+          config["motion_list"]["exclusions"] = {
+              "type": "lapd_xy",
+              "diameter": 60,
+              "port_location": "W",
+              "cone_full_angle": 60,
+          }
     """
-    _exclusion_type = "lapd-XY"
+    _exclusion_type = "lapd_xy"
     _port_location_to_angle = {
         "e": 0,
         "east": 0,
