@@ -117,7 +117,7 @@ class Axis(BaseActor):
         self.motor.run()
 
     def stop_running(self, delay_loop_stop=False):
-        """
+        r"""
         Stop the actor's `event loop`_\ .  All actor tasks will be
         cancelled, the connection to the motor will be shutdown, and
         the event loop will be stopped.
@@ -136,13 +136,13 @@ class Axis(BaseActor):
     @property
     def config(self) -> Dict[str, Any]:
         """Dictionary of the axis configuration parameters."""
-        _config = {
+        return {
             "name": self.name,
             "ip": self.motor.ip,
             "units": str(self.units),
             "units_per_rev": self.units_per_rev.value.item()
         }
-        return _config
+    config.__doc__ = BaseActor.config.__doc__
 
     @property
     def is_moving(self) -> bool:

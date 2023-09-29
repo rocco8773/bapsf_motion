@@ -465,6 +465,9 @@ class Motor(BaseActor):
     # TODO: create a method that lists all available commands
     # TODO: create a method the shows a commands definition
     #       (i.e. self._commands[command])
+    # TODO: Do we need a 2nd Task that monitors the heartbeat and
+    #       restarts the heartbeat if it stops...this could lead to
+    #       restarts when it IS intended that the heartbeat be stopped
 
     def __init__(
         self,
@@ -666,6 +669,28 @@ class Motor(BaseActor):
         self._setup["name"] = value
 
     @property
+    def ip(self) -> str:
+        """IPv4 address for the motor"""
+        return self._motor["ip"]
+
+    @ip.setter
+    def ip(self, value):
+        # TODO: update ipv4_pattern so the port number can be passed with the
+        #       ip argument
+        if ipv4_pattern.fullmatch(value) is None:
+            raise ValueError(f"Supplied IP address ({value}) is not a valid IPv4.")
+
+        self._motor["ip"] = value
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "ip": self.ip,
+        }
+    config.__doc__ = BaseActor.config.__doc__
+
+    @property
     def logger(self) -> logging.Logger:
         """The `~logger.Logger` being used for the actor."""
         return self._setup["logger"]
@@ -720,20 +745,6 @@ class Motor(BaseActor):
     def steps_per_rev(self) -> u.steps/u.rev:
         """The number of steps the motor does per revolution."""
         return self._motor["gearing"]
-
-    @property
-    def ip(self) -> str:
-        """IPv4 address for the motor"""
-        return self._motor["ip"]
-
-    @ip.setter
-    def ip(self, value):
-        # TODO: update ipv4_pattern so the port number can be passed with the
-        #       ip argument
-        if ipv4_pattern.fullmatch(value) is None:
-            raise ValueError(f"Supplied IP address ({value}) is not a valid IPv4.")
-
-        self._motor["ip"] = value
 
     @property
     def port(self) -> int:
@@ -854,6 +865,9 @@ class Motor(BaseActor):
                 self.logger.debug(msg)
                 self.socket = s
                 self._update_status(connected=True)
+
+                # TODO: if the connection as lost then the heart beat stopped
+                #       need to restart heartbeat
                 return
             except (
                 TimeoutError,
@@ -1310,7 +1324,7 @@ class Motor(BaseActor):
         self._thread.start()
 
     def stop_running(self, delay_loop_stop=False):
-        """
+        r"""
         Stop the actor's `event loop`_\ .  All actor tasks will be
         cancelled, the connection to the motor will be shutdown, and
         the event loop will be stopped.

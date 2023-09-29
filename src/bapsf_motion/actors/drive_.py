@@ -39,11 +39,11 @@ class Drive(BaseActor):
     logger: `~logging.Logger`, optional
         An instance of `~logging.Logger` that the Actor will record
         events and status updates to.  If `None`, then a logger will
-        automatically be generated. (DEFUALT: `None`)
+        automatically be generated. (DEFAULT: `None`)
 
     loop: `asyncio.AbstractEventLoop`, optional
         Instance of an `asyncio` `event loop`_. Communication with all
-        the axes will happen primaritly through the evenet loop.  If
+        the axes will happen primarily through the event loop.  If
         `None`, then an `event loop`_ will be auto-generated.
         (DEFAULT: `None`)
 
@@ -189,14 +189,11 @@ class Drive(BaseActor):
             "axes": {},
         }
 
-        for ax in self.axes:
-            for key, val in ax.config.items():
-                if key not in _config["axes"]:
-                    _config["axes"][key] = [val]
-                else:
-                    _config["axes"][key].append(val)
+        for ii, ax in enumerate(self.axes):
+            _config["axes"][ii] = ax.config.copy()
 
         return _config
+    config.__doc__ = BaseActor.config.__doc__
 
     @property
     def is_moving(self) -> bool:
