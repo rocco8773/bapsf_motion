@@ -8,17 +8,17 @@ import xarray as xr
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Union
 
-from bapsf_motion.motion_list.item import MLItem
+from bapsf_motion.motion_builder.item import MBItem
 
 
-class BaseExclusion(ABC, MLItem):
+class BaseExclusion(ABC, MBItem):
     """
     Abstract base class for :term:`motion exclusion` classes.
 
     Parameters
     ----------
     ds: `~xr.Dataset`
-        The `xarray` `~xarray.Dataset` the motion list configuration
+        The `xarray` `~xarray.Dataset` the motion builder configuration
         is constructed in.
 
     skip_ds_add: bool
@@ -31,7 +31,7 @@ class BaseExclusion(ABC, MLItem):
     """
 
     # TODO: Can we define a __del__ that properly removes an exclusion
-    #       and its dependencies from the motion list dataset?
+    #       and its dependencies from the motion builder dataset?
     # TODO: Rework _generate_exclusion() and regenerate_exclusion()
     #       to match the workflow of BaseLayer._generate_point_matrix(),
     #       BaseLayer._generate_point_matrix_da(), and

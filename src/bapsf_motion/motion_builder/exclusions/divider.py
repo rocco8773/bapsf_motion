@@ -11,8 +11,8 @@ import xarray as xr
 
 from typing import Tuple
 
-from bapsf_motion.motion_list.exclusions.base import BaseExclusion
-from bapsf_motion.motion_list.exclusions.helpers import register_exclusion
+from bapsf_motion.motion_builder.exclusions.base import BaseExclusion
+from bapsf_motion.motion_builder.exclusions.helpers import register_exclusion
 
 
 @register_exclusion
@@ -27,7 +27,7 @@ class DividerExclusion(BaseExclusion):
     Parameters
     ----------
     ds: `~xarray.DataSet`
-        The `xarray` `~xarray.Dataset` the motion list configuration
+        The `xarray` `~xarray.Dataset` the motion builder configuration
         is constructed in.
 
     mb: Tuple[`~numbers.Real`, `~numbers.Real`]
@@ -80,14 +80,14 @@ class DividerExclusion(BaseExclusion):
 
        .. code-tab:: toml TOML
 
-          [...motion_list.exclusions]
+          [...motion_builder.exclusions]
           type = "divider"
           mb = ["inf", 0]
           exclude = "-e0"
 
        .. code-tab:: py Dict Entry
 
-          config["motion_list"]["exclusions"] = {
+          config["motion_builder"]["exclusions"] = {
               "type": "divider",
               "mb": (np.inf, 0),
               "exclude": "-e0",

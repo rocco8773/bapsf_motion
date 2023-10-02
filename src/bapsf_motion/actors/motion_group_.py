@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional, Union
 
 from bapsf_motion.actors.base import BaseActor
 from bapsf_motion.actors.drive_ import Drive
-from bapsf_motion.motion_list import MotionList
+from bapsf_motion.motion_builder import MotionBuilder
 from bapsf_motion import transform
 from bapsf_motion.utils import toml
 
@@ -71,8 +71,8 @@ class MotionGroupConfig(UserDict):
           axes.1.units = "cm"
           axes.1.units_per_rev = 0.254
 
-          [motion_group.motion_list]
-          # configuration for the motion list
+          [motion_group.motion_builder]
+          # configuration for the motion builder
           #
           # 'space' defines the motion space
           # - motion space is the "volume" in which the motion will
@@ -146,7 +146,7 @@ class MotionGroupConfig(UserDict):
                       },
                   },
               },
-              "motion_list": {
+              "motion_builder": {
                   "space", {
                       0: {
                           "label": "X",
@@ -189,20 +189,20 @@ class MotionGroupConfig(UserDict):
             "name",
             "drive",
             "transform",
-            "motion_list",
+            "motion_builder",
         },
         "drive": {"name", "axes"},
         "drive.axes": {"ip", "units", "name", "units_per_rev"},
         "transform": {"type"},
-        "motion_list": {"space"},
-        "motion_list.exclusions": {"type"},
-        "motion_list.layers": {"type"},
-        # "motion_list.space": {"label", "range", "num"},
+        "motion_builder": {"space"},
+        "motion_builder.exclusions": {"type"},
+        "motion_builder.layers": {"type"},
+        # "motion_builder.space": {"label", "range", "num"},
     }
 
     #: optional keys for the motion group configuration dictionary
     _optional_metadata = {
-        "motion_list": {"exclusions", "layers"},
+        "motion_builder": {"exclusions", "layers"},
     }
 
     #: allowable motion group header names
@@ -260,7 +260,7 @@ class MotionGroupConfig(UserDict):
         config = self._validate_config(config)
         self._drive = None
         self._transform = None
-        self._motion_list = None
+        self._motion_builder = None
 
         super().__init__(config)
         self._data = self.data
@@ -274,8 +274,8 @@ class MotionGroupConfig(UserDict):
         if self._drive is not None:
             self._data = {**self._data, "drive": self._drive.config}
 
-        if self._motion_list is not None:
-            self._data = {**self._data, "motion_list": self._motion_list.config}
+        if self._motion_builder is not None:
+            self._data = {**self._data, "motion_builder": self._motion_builder.config}
 
         if self._transform is not None:
             self._data = {**self._data, "transform": self._transform.config}
@@ -300,18 +300,18 @@ class MotionGroupConfig(UserDict):
         config["name"] = str(config["name"])
         config["drive"] = self._validate_drive(config["drive"])
         config["transform"] = self._validate_transform(config["transform"])
-        config["motion_list"] = self._validate_motion_list(config["motion_list"])
+        config["motion_builder"] = self._validate_motion_builder(config["motion_builder"])
 
         config = self._handle_user_meta(config, self._required_metadata["motion_group"])
 
         # TODO: the below commented out code block is not do-able since
-        #       motion_list.space can be defined as a string for builtin spaces
+        #       motion_builder.space can be defined as a string for builtin spaces
         #       or ranges for all axes...once this is reconciled then the
         #       code block below can be reinstated.
         #
-        # # check axis names are the same as the motion list labels
+        # # check axis names are the same as the motion builder labels
         # axis_labels = (ax["name"] for ax in config["drive"]["axes"].values())
-        # ml_labels = tuple(config["motion_list"]["label"])
+        # ml_labels = tuple(config["motion_builder"]["label"])
         # if axis_labels != ml_labels:
         #     raise ValueError(
         #         f"The Motion List space and Axes must have the same "
@@ -382,18 +382,18 @@ class MotionGroupConfig(UserDict):
 
         return config
 
-    def _validate_motion_list(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_motion_builder(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate the motion list component of the motion group
+        Validate the motion builder component of the motion group
         configuration.
         """
-        req_meta = self._required_metadata["motion_list"]
-        opt_meta = self._optional_metadata["motion_list"]
+        req_meta = self._required_metadata["motion_builder"]
+        opt_meta = self._optional_metadata["motion_builder"]
 
         missing_meta = req_meta - set(config.keys())
         if missing_meta:
             raise ValueError(
-                f"Supplied configuration for MotionList is missing required "
+                f"Supplied configuration for MotionBuilder is missing required "
                 f"keys {missing_meta}."
             )
 
@@ -409,12 +409,12 @@ class MotionGroupConfig(UserDict):
 
             if not isinstance(sub_config, dict):
                 raise TypeError(
-                    f"Expected type dict for the motion_list.{key} configuration,"
+                    f"Expected type dict for the motion_builder.{key} configuration,"
                     f" got type {type(sub_config)}."
                 )
 
             try:
-                rmeta = self._required_metadata[f"motion_list.{key}"]
+                rmeta = self._required_metadata[f"motion_builder.{key}"]
             except KeyError:
                 continue
 
@@ -424,7 +424,7 @@ class MotionGroupConfig(UserDict):
                 missing_meta = rmeta - set(sub_config.keys())
                 if missing_meta:
                     raise ValueError(
-                        f"Supplied configuration for motion_list.{key} is "
+                        f"Supplied configuration for motion_builder.{key} is "
                         f"missing required  keys {missing_meta}."
                     )
 
@@ -435,14 +435,14 @@ class MotionGroupConfig(UserDict):
             for sck, scv in sub_config.items():
                 if not isinstance(scv, dict):
                     raise ValueError(
-                        f"Expected type dict for the motion_list.{key}.{sck} "
+                        f"Expected type dict for the motion_builder.{key}.{sck} "
                         f"configuration, got type {type(sub_config)}."
                     )
 
                 missing_meta = rmeta - set(scv.keys())
                 if missing_meta:
                     raise ValueError(
-                        f"Supplied configuration for motion_list.{key}.{sck} is "
+                        f"Supplied configuration for motion_builder.{key}.{sck} is "
                         f"missing required  keys {missing_meta}."
                     )
 
@@ -494,20 +494,20 @@ class MotionGroupConfig(UserDict):
 
         return config
 
-    def link_motion_list(self, ml: MotionList):
+    def link_motion_builder(self, mb: MotionBuilder):
         """
-        Link the 'motion_list' configuration component to an instance
-        of |MotionList|.  The 'motion_list' configuration component
+        Link the 'motion_builder' configuration component to an instance
+        of |MotionBuilder|.  The 'motion_builder' configuration component
         will now be pulled from the :attr:`config` property of
-        |MotionList|.
+        |MotionBuilder|.
         """
-        if not isinstance(ml, MotionList):
+        if not isinstance(mb, MotionBuilder):
             raise TypeError(
-                f"For argument 'ml' expected type {MotionList}, but got "
-                f"type {type(ml)}."
+                f"For argument 'mb' expected type {MotionBuilder}, but got "
+                f"type {type(mb)}."
             )
 
-        self._motion_list = ml
+        self._motion_builder = mb
 
     def link_drive(self, drive: Drive):
         """
@@ -547,7 +547,7 @@ class MotionGroup(BaseActor):
     components include: (1) the full motion group configuration
     (i.e. instance of `MotionGroupConfig`), (2) communication with
     the probe drive (i.e. instance of |Drive|), (3) an understanding
-    of the motion space (i.e. instance of |MotionList|, and (4) how
+    of the motion space (i.e. instance of |MotionBuilder|, and (4) how
     to convert back and forth from the motion space coordinate system
     and the probe drive coordinate system (i.e. instance of a subclass
     of `~bapsf_motion.transform.base.BaseTransform`).
@@ -599,14 +599,14 @@ class MotionGroup(BaseActor):
 
         self._drive = self._spawn_drive(config["drive"], loop)
 
-        self._ml = self._setup_motion_list(config["motion_list"])
+        self._ml = self._setup_motion_builder(config["motion_builder"])
         self._ml_index = None
 
         self._transform = self._setup_transform(config["transform"])
 
         self._config = config
         self._config.link_drive(self.drive)
-        self._config.link_motion_list(self.ml)
+        self._config.link_motion_builder(self.mb)
         self._config.link_transform(self.transform)
 
         if auto_run:
@@ -638,9 +638,9 @@ class MotionGroup(BaseActor):
         return dr
 
     @staticmethod
-    def _setup_motion_list(config: Dict[str, Any]) -> MotionList:
-        """Return an instance of |MotionList|."""
-        # initialize the motion list object
+    def _setup_motion_builder(config: Dict[str, Any]) -> MotionBuilder:
+        """Return an instance of |MotionBuilder|."""
+        # initialize the motion builder object
 
         ml_config = config.copy()
 
@@ -656,7 +656,7 @@ class MotionGroup(BaseActor):
             except KeyError:
                 continue
 
-        _ml = MotionList(**ml_config)
+        _ml = MotionBuilder(**ml_config)
         return _ml
 
     def _setup_transform(self, config: Dict[str, Any]) -> transform.BaseTransform:
@@ -708,8 +708,8 @@ class MotionGroup(BaseActor):
         return self._drive
 
     @property
-    def ml(self) -> MotionList:
-        """Instance of |MotionList| associated with the motion group."""
+    def mb(self) -> MotionBuilder:
+        """Instance of |MotionBuilder| associated with the motion group."""
         return self._ml
 
     @property
@@ -725,10 +725,10 @@ class MotionGroup(BaseActor):
             raise ValueError(
                 f"Expected type int for 'index', got {type(index)}"
             )
-        elif not np.isin(index, self.ml.motion_list.index):
+        elif not np.isin(index, self.mb.motion_list.index):
             raise ValueError(
                 f"Given index {index} is out of range, "
-                f"[0, {self.ml.motion_list.index.size}]."
+                f"[0, {self.mb.motion_list.index.size}]."
             )
 
         self._ml_index = index
@@ -789,9 +789,9 @@ class MotionGroup(BaseActor):
         elif index == "first":
             index = 0
         elif index == "last":
-            index = self.ml.motion_list.index[-1].item()
+            index = self.mb.motion_list.index[-1].item()
 
         self.ml_index = index
-        pos = self.ml.motion_list.sel(index=index).to_numpy().tolist()
+        pos = self.mb.motion_list.sel(index=index).to_numpy().tolist()
 
         return self.move_to(pos=pos)

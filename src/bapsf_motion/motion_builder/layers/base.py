@@ -8,17 +8,17 @@ import xarray as xr
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Union
 
-from bapsf_motion.motion_list.item import MLItem
+from bapsf_motion.motion_builder.item import MBItem
 
 
-class BaseLayer(ABC, MLItem):
+class BaseLayer(ABC, MBItem):
     """
     Abstract base class for :term:`motion layer` classes.
 
     Parameters
     ----------
     ds: `~xr.Dataset`
-        The `xarray` `~xarray.Dataset` the motion list configuration
+        The `xarray` `~xarray.Dataset` the motion builder configuration
         is constructed in.
 
     skip_ds_add: bool
@@ -31,7 +31,7 @@ class BaseLayer(ABC, MLItem):
     """
 
     # TODO: Can we define a __del__ that properly removes a layer and
-    #       its dependencies from the motion list dataset?
+    #       its dependencies from the motion builder dataset?
 
     _layer_type = NotImplemented  # type: str
 
@@ -117,8 +117,8 @@ class BaseLayer(ABC, MLItem):
         Notes
         -----
 
-        The method should only generate and return the points associated
-        with the motion list.  The :attr:`_generate_point_matrix_da`
+        This method should only generate and return the points associated
+        with the motion layer.  The :attr:`_generate_point_matrix_da`
         method will then validate the array and add it to the
         `xarray.Dataset`.
         """

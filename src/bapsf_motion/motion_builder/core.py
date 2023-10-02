@@ -1,7 +1,7 @@
 """
-Module containing the definition of |MotionList|.
+Module containing the definition of |MotionBuilder|.
 """
-__all__ = ["MotionList"]
+__all__ = ["MotionBuilder"]
 
 import numpy as np
 import re
@@ -9,12 +9,12 @@ import xarray as xr
 
 from typing import Any, Dict, List, Optional, Union
 
-from bapsf_motion.motion_list.item import MLItem
-from bapsf_motion.motion_list.exclusions import (
+from bapsf_motion.motion_builder.item import MBItem
+from bapsf_motion.motion_builder.exclusions import (
     exclusion_factory,
     BaseExclusion,
 )
-from bapsf_motion.motion_list.layers import (
+from bapsf_motion.motion_builder.layers import (
     layer_factory,
     BaseLayer,
 )
@@ -23,10 +23,16 @@ from bapsf_motion.motion_list.layers import (
 #        a motion list is finished but other motion lists are still running
 
 
-class MotionList(MLItem):
-    """
-    A class that manages all the functionality around creating,
-    generating, and reading a :term:`motion list`.
+class MotionBuilder(MBItem):
+    r"""
+    A class that manages all the functionality around
+    :term:`probe drive` motion in the :term:`motion space`\ .  This
+    functionality includes:
+
+    1. Defining the motion space the probe moves in.
+    2. Generating the :term:`motion list` for a motion sequence.
+    3. Generating motion trajectories to avoid obstacles in the
+       motion space.
 
     Parameters
     ----------
@@ -34,7 +40,9 @@ class MotionList(MLItem):
     layers
     exclusions
     """
-    #: Dictionary of :term:`motion list item` base names.
+    # TODO: ^ fully write out the above docstring
+
+    #: Dictionary of :term:`motion builder item` base names.
     base_names = {
         "layer": BaseLayer.base_name,
         "exclusion": BaseExclusion.base_name,
@@ -56,8 +64,8 @@ class MotionList(MLItem):
 
         super().__init__(
             self._build_initial_ds(),
-            base_name="motion_list",
-            name_pattern=re.compile(r"motion_list")
+            base_name="motion_builder",
+            name_pattern=re.compile(r"motion_builder")
         )
 
         self.layers = []  # type: List[BaseLayer]
@@ -80,7 +88,7 @@ class MotionList(MLItem):
     def config(self) -> Dict[str, Any]:
         """
         Dictionary containing the full configuration of the
-        :term:`motion list`.
+        :term:`motion builder`.
         """
         _config = {"space": {}}
 
@@ -107,7 +115,7 @@ class MotionList(MLItem):
         """
         Validate the ``space`` argument given during instantiation.
 
-        See the notes section for |MotionList| for additional details.
+        See the notes section for |MotionBuilder| for additional details.
         """
         # TODO: !!! allow `space` to be defined as a list of
         #       !!! dictionaries of a dictionary of lists
@@ -173,7 +181,7 @@ class MotionList(MLItem):
 
     def add_layer(self, ly_type: str, **settings):
         """
-        Add a "point" layer to the motion list.
+        Add a "point" layer to the motion builder.
 
         Parameters
         ----------
@@ -193,11 +201,11 @@ class MotionList(MLItem):
         the first axis and -30 to 30 along the second axis.  In this
         case the steps size along both axes is 3.  A ``"grid"`` layer
         is defined/constructed by the
-        `~bapsf_motion.motion_list.layers.regular_grid.GridLayer` class.
+        `~bapsf_motion.motion_builder.layers.regular_grid.GridLayer` class.
 
         .. code-block:: python
 
-            ml.add_layer(
+            mb.add_layer(
                 "grid",
                 **{
                     "limits": [[0, 30], [, -30, 30]],
@@ -207,7 +215,7 @@ class MotionList(MLItem):
 
         See Also
         --------
-        ~bapsf_motion.motion_list.layers.helpers.layer_factory
+        ~bapsf_motion.motion_builder.layers.helpers.layer_factory
         """
         # TODO: add ref in docstring to documented available layers
         layer = layer_factory(self._ds, ly_type=ly_type, **settings)
@@ -215,13 +223,13 @@ class MotionList(MLItem):
 
     def remove_layer(self, name: str):
         """
-        Completely remove a layer from the :term:`motion list`.
+        Completely remove a layer from the :term:`motion builder`.
 
         Parameters
         ----------
         name: str
             Name of the layer to be removed.  The name corresponds
-            to the `~xarray.DataArray` name in the motion list
+            to the `~xarray.DataArray` name in the motion builder
             `~xarray.Dataset`,
         """
         for ii, layer in enumerate(self.layers):
@@ -236,7 +244,7 @@ class MotionList(MLItem):
 
     def add_exclusion(self, ex_type: str, **settings):
         """
-        Add an exclusion "layer" to the motion list.
+        Add an exclusion "layer" to the motion builder.
 
         Parameters
         ----------
@@ -250,7 +258,7 @@ class MotionList(MLItem):
 
         See Also
         --------
-        ~bapsf_motion.motion_list.exclusions.helpers.exclusion_factory
+        ~bapsf_motion.motion_builder.exclusions.helpers.exclusion_factory
         """
         # TODO: add ref in docstring to documented available layers
         exclusion = exclusion_factory(self._ds, ex_type=ex_type, **settings)
@@ -261,13 +269,13 @@ class MotionList(MLItem):
     def remove_exclusion(self, name: str):
         """
         Completely remove an exclusion "layer" from the
-        :term:`motion list`.
+        :term:`motion builder`.
 
         Parameters
         ----------
         name: str
             Name of the exclusion to be removed.  The name corresponds
-            to the `~xarray.DataArray` name in the motion list
+            to the `~xarray.DataArray` name in the motion builder
             `~xarray.Dataset`,
         """
         for ii, exclusion in enumerate(self.exclusions):
@@ -394,10 +402,10 @@ class MotionList(MLItem):
         """
         # return the generated motion list
         try:
-            ml = self._ds["motion_list"]
+            mb = self._ds["motion_list"]
         except KeyError:
             self.rebuild_mask()
             self.generate()
-            ml = self._ds["motion_list"]
+            mb = self._ds["motion_list"]
 
-        return ml
+        return mb
