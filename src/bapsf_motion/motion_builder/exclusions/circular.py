@@ -8,6 +8,8 @@ import numbers
 import numpy as np
 import xarray as xr
 
+from typing import Optional, Tuple
+
 from bapsf_motion.motion_builder.exclusions.base import BaseExclusion
 from bapsf_motion.motion_builder.exclusions.helpers import register_exclusion
 
@@ -97,13 +99,14 @@ class CircularExclusion(BaseExclusion):
     """
     # TODO: Can this class be extend to a N-D motion space.
     _exclusion_type = "circle"
+    _dimensionality = 2
 
     def __init__(
         self,
         ds: xr.Dataset,
         *,
-        radius,
-        center=None,
+        radius: float,
+        center: Optional[Tuple[float, float]] = None,
         exclude: str = "outside",
         skip_ds_add: bool = False,
     ):
@@ -112,7 +115,7 @@ class CircularExclusion(BaseExclusion):
             skip_ds_add=skip_ds_add,
             radius=radius,
             center=center,
-            exclude_region=exclude,
+            exclude=exclude,
         )
 
     def _generate_exclusion(self):
@@ -163,4 +166,4 @@ class CircularExclusion(BaseExclusion):
         ``'inside'`` for an interior excluded region and ``'outside'``
         for and exterior excluded region.
         """
-        return self.inputs["exclude_region"]
+        return self.inputs["exclude"]

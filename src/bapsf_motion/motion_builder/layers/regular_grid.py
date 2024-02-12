@@ -88,15 +88,17 @@ class GridLayer(BaseLayer):
     # TODO: Can the different code types in teh docstring be done with
     #       tabs?
     _layer_type = "grid"
+    _dimensionality = -1
 
     def __init__(
             self,
             ds: xr.Dataset,
             limits: List[List[float]],
             steps: List[int],
+            skip_ds_add: bool = False,
     ):
         # assign all, and only, instance variables above the super
-        super().__init__(ds, limits=limits, steps=steps)
+        super().__init__(ds, limits=limits, steps=steps, skip_ds_add=skip_ds_add)
 
     def _generate_point_matrix(self):
         """

@@ -6,6 +6,7 @@ __all__ = ["do_nothing", "CommandEntry", "Motor"]
 __actors__ = ["Motor"]
 
 import asyncio
+import errno
 import logging
 import numpy as np
 import re
@@ -14,6 +15,7 @@ import threading
 import time
 
 from collections import namedtuple, UserDict
+from enum import Enum
 from typing import Any, AnyStr, Callable, Dict, List, NamedTuple, Optional, Union
 
 from bapsf_motion.actors.base import EventActor
@@ -24,6 +26,20 @@ from bapsf_motion.utils import units as u
 def do_nothing(x):
     """Return argument ``x`` unchanged."""
     return x
+
+
+class AckFlags(Enum):
+    ACK = 1
+    ACK_QUEUED = 2
+    NACK = 3
+    LOST_CONNECTION = 4
+
+
+class _HeartRate(NamedTuple):
+    BASE = 2.0  # seconds
+    ACTIVE = 0.2
+    SEARCHING = 3.0
+    PAUSE = 5.0
 
 
 class CommandEntry(UserDict):
@@ -246,6 +262,12 @@ class Motor(EventActor):
             "alarm_reset",
             send="AR"
         ),
+        "buffer_size": CommandEntry(
+            "buffer_size",
+            send="BS",
+            recv=re.compile(r"BS=(?P<return>[0-9]\.?[0-9]?)"),
+            recv_processor=int,
+        ),
         "current": CommandEntry(
             "change_current",
             send="CC",
@@ -311,6 +333,10 @@ class Motor(EventActor):
             recv=re.compile(r"CI=(?P<return>[0-9]\.?[0-9]?)"),
             recv_processor=float,
             two_way=True,
+        ),
+        "kill": CommandEntry(
+            "stop_and_kill",  # immediately stop moving and erase queue
+            send="SK",
         ),
         "move_off_limit": CommandEntry(
             "move_off_limit",
@@ -442,9 +468,8 @@ class Motor(EventActor):
             "(Flex I/O drives only)",
     }
 
-    # TODO: determine why heartbeat is not beating during a move
-    #       - above statement is not true, but the heartbeat seems
-    #         slower than the specified HR
+    ack_flags = AckFlags
+
     # TODO: update _heartbeat so the beat happens on the specified HR
     #       interval instead of execution time + HR interval
     # TODO: implement a "jog_by" "FL" "feed to length"
@@ -469,9 +494,6 @@ class Motor(EventActor):
     # TODO: create a method that lists all available commands
     # TODO: create a method the shows a commands definition
     #       (i.e. self._commands[command])
-    # TODO: Do we need a 2nd Task that monitors the heartbeat and
-    #       restarts the heartbeat if it stops...this could lead to
-    #       restarts when it IS intended that the heartbeat be stopped
 
     def __init__(
         self,
@@ -482,6 +504,8 @@ class Motor(EventActor):
         loop: asyncio.AbstractEventLoop = None,
         auto_run: bool = False,
     ):
+
+        self._heartbeat_task = None
 
         self._setup = self._setup_defaults.copy()
         self._motor = self._motor_defaults.copy()
@@ -494,12 +518,45 @@ class Motor(EventActor):
 
         self.ip = ip
 
+        self._pause_heartbeat = False
+
         super().__init__(
             name=name,
             logger=logger,
             loop=loop,
             auto_run=auto_run,
         )
+
+    def _configure_before_run(self):
+        # actions to be done during object instantiation, but before
+        # the asyncio event loop starts running.
+
+        self.connect()
+
+        self.start_heartbeat()
+        self._pause_heartbeat = True
+
+        self._configure_motor()
+        self._get_motor_parameters()
+        self.send_command("retrieve_motor_status")
+
+        self._pause_heartbeat = False
+
+    def _initialize_tasks(self):
+        # The heartbeat task was initialized in _configure_before_run
+        # self.start_heartbeat()
+        return
+
+    def run(self, auto_run=True):
+
+        if (
+            self.heartbeat_task is None
+            or self.heartbeat_task.done()
+            or self.heartbeat_task.cancelled()
+        ):
+            self._configure_before_run()
+
+        super().run(auto_run=auto_run)
 
     @property
     def _setup_defaults(self) -> Dict[str, Any]:
@@ -512,9 +569,7 @@ class Motor(EventActor):
             "socket": None,
             "tasks": None,
             "max_connection_attempts": 3,
-            "heartrate": namedtuple("HR", ["base", "active"])(
-                base=2.0, active=0.2
-            ),  # in seconds
+            "heartrate": _HeartRate(),  # in seconds
             "port": 7776,  # 7776 is Applied Motion's TCP port, 7775 is the UDP port
         }
 
@@ -595,6 +650,17 @@ class Motor(EventActor):
         # TODO: dictionary keys and explanations to the docstring
         return self._status
 
+    def _lost_connection(self, rtn: Any = None):
+        """
+        Check if the motor connection as lost by examining the return
+        value from send_command.
+        """
+        if rtn is None:
+            return not self._status["connected"]
+        elif isinstance(rtn, self.ack_flags) and rtn == self.ack_flags.LOST_CONNECTION:
+            return True
+        return False
+
     def _configure_motor(self):
         """
         Configure motor behavior for suitable operation with the actor.
@@ -639,6 +705,8 @@ class Motor(EventActor):
         bit 8 =Full Duplex in RS-422
         """
         rtn = self.send_command("protocol")
+        if self._lost_connection(rtn):
+            return
         _bits = f"{rtn:09b}"
 
         if _bits[-3] == "0":
@@ -648,14 +716,16 @@ class Motor(EventActor):
             _bits[-3] = "1"  # sets always ack/nack
             _bits = "".join(_bits)
             _bits = int(_bits, 2)
-            try:
-                self.send_command("protocol", _bits)
-            except TimeoutError:
-                # if Ack/Nack was not set to begin with, then this command will
-                # not receive an Ack/Nack and a TimeoutError will occur
-                pass
 
+            self.send_command("protocol", _bits)
+
+            # if Ack/Nack was not set to begin with, then the first protocol
+            # setting will not have an Ack/Nack return.  Thus, lets retrieve
+            # the protocol again.
+            #
             rtn = self.send_command("protocol")
+            if self._lost_connection(rtn):
+                return
             _bits = f"{rtn:09b}"
 
         self._motor["protocol_settings"] = []
@@ -698,6 +768,13 @@ class Motor(EventActor):
     def ip(self, value):
         # TODO: update ipv4_pattern so the port number can be passed with the
         #       ip argument
+        if self._motor["ip"] is not None:
+            self.logger.warning(
+                "The motor's IP address can only be defined at object"
+                " instantiation."
+            )
+            return
+
         if ipv4_pattern.fullmatch(value) is None:
             raise ValueError(f"Supplied IP address ({value}) is not a valid IPv4.")
 
@@ -712,7 +789,7 @@ class Motor(EventActor):
     config.__doc__ = EventActor.config.__doc__
 
     @property
-    def heartrate(self) -> NamedTuple:
+    def heartrate(self) -> _HeartRate:
         """
         Heartrate of the motor monitor, or the time (in sec) between
         motor checks.  There are two different heartrates:
@@ -757,22 +834,40 @@ class Motor(EventActor):
         Current position of the motor, in motor units
         `~bapsf_motion.utils.steps`.
         """
+        if (
+            self.loop.is_running()
+            and not self.heartbeat_task.done()
+            and not self.heartbeat_task.cancelled()
+        ):
+            return self.status["position"]
+
         pos = self.send_command("get_position")
-        self._update_status(position=pos)
-        return pos
+        if not isinstance(pos, self.ack_flags):
+            self._update_status(position=pos)
+            return pos
 
-    def _configure_before_run(self):
-        # actions to be done during object instantiation, but before
-        # the asyncio event loop starts running.
+    @property
+    def heartbeat_task(self) -> asyncio.Task:
+        """The `asyncio.Task` associated with the motor's heartbeat."""
+        return self._heartbeat_task
 
-        self.connect()
-        self._configure_motor()
-        self._get_motor_parameters()
-        self.send_command("retrieve_motor_status")
+    @heartbeat_task.setter
+    def heartbeat_task(self, val):
+        if not isinstance(val, asyncio.Task):
+            return
+        elif self.heartbeat_task is None:
+            pass
+        elif self.heartbeat_task.done():
+            # remove task from task list
+            self.tasks.remove(self._heartbeat_task)
 
-    def _initialize_tasks(self):
-        tk = self.loop.create_task(self._heartbeat())
-        self.tasks.append(tk)
+        self._heartbeat_task = val
+        self.tasks.append(self._heartbeat_task)
+
+    def start_heartbeat(self):
+        """Start or restart the heartbeat `asyncio.Task`."""
+        if self.heartbeat_task is None or self.heartbeat_task.done():
+            self.heartbeat_task = self.loop.create_task(self._heartbeat())
 
     def _update_status(self, **values):
         """
@@ -786,10 +881,9 @@ class Motor(EventActor):
                 changed[key] = value
 
         if changed:
+            self._status = new_status
             self.logger.debug(f"Motor status changed, new values are {changed}.")
-            self.status_changed.emit(True)
-
-        self._status = new_status
+            self.status_changed.emit()
 
     def connect(self):
         """
@@ -797,60 +891,128 @@ class Motor(EventActor):
         reconnection attempts before an exception is raised is defined
         by ``self._setup["max_connection_attempts"]``.
         """
+        if not isinstance(self.socket, socket.socket):
+            # socket has not been created yet, self.socket is likely None
+            pass
+        else:
+            try:
+                socket_ip, socket_port = self.socket.getpeername()
+            except OSError as err:
+                self.logger.error(
+                    "Appears the socket is bad.  It was likely disconnected by"
+                    " the sever or the client.",
+                    exc_info=err,
+                )
+            else:
+                if self.ip != socket_ip or self.port != socket_port:
+                    self.logger.error(
+                        f"Socket IPv4 address {socket_ip}:{socket_port} does"
+                        f" NOT match assigned IPv4 address {self.ip}:{self.port}.  "
+                        f"Suspect improper re-assignment of address."
+                    )
+                    return
+                elif self.socket.fileno() != -1:
+                    # socket is created and running
+                    return
+
         _allowed_attempts = self._setup["max_connection_attempts"]
         for _count in range(_allowed_attempts):
             try:
                 msg = f"Connecting to {self.ip}:{self.port} ..."
-                self.logger.debug(msg)
+                self.logger.info(msg)
 
+                socket.setdefaulttimeout(3)
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(1)  # 1 second timeout
                 s.connect((self.ip, self.port))
 
                 msg = "...SUCCESS!!!"
-                self.logger.debug(msg)
+                self.logger.info(msg)
                 self.socket = s
                 self._update_status(connected=True)
 
-                # TODO: if the connection as lost then the heart beat stopped
-                #       need to restart heartbeat
-                return
+                # connection established, break for-loop
+                break
             except (
                 TimeoutError,
                 InterruptedError,
                 ConnectionRefusedError,
+                OSError,
                 socket.timeout,
-            ) as error_:
+            ) as err:
                 msg = f"...attempt {_count+1} of {_allowed_attempts} failed"
                 if _count+1 < _allowed_attempts:
                     self.logger.warning(msg)
                 else:
                     self.logger.error(msg)
+                    self.logger.error(f"{err.__class__.__name__}: {err}")
                     # TODO: make this a custom exception (e.g. MotorConnectionError)
                     #       so other bapsfdaq_motion functionality can respond
                     #       appropriately...the exception should likely inherit
                     #       from TimeoutError, InterruptedError, ConnectionRefusedError,
                     #       and socket.timeout
-                    raise error_
+                    self._update_status(connected=False)
+                    raise ConnectionError(
+                        "Connection to motor could not be established."
+                    )
 
         if self.loop is not None:
-            self._get_motor_parameters()
             self._configure_motor()
+            self._get_motor_parameters()
 
     def _send_command(self, command, *args):
         """
         A low level method for sending commands to the motor, and
         receiving the response.
         """
-        cmd_str = self._process_command(command, *args)
-        recv_str = self._send_raw_command(cmd_str) if "?" not in cmd_str else cmd_str
-        return self._process_command_return(command, recv_str)
+        if self.loop.is_running() and (
+            self.heartbeat_task is None
+            or self.heartbeat_task.done()
+            or self.heartbeat_task.cancelled()
+        ):
+            self.start_heartbeat()
+
+        try:
+            cmd_str = self._process_command(command, *args)
+            recv_str = self._send_raw_command(cmd_str) if "?" not in cmd_str else cmd_str
+
+            if not self.status["connected"]:
+                # connection reestablished ... the motor buffer my have old
+                # commands in it, so we need to empty the buffer so new sent
+                # and received commands are synced
+                self._update_status(connected=True)
+
+                _ack = self._send_raw_command("SK")  # kill
+                _bs = self._send_raw_command("BS")  # check contents of buffer
+                while "BS" not in _bs:
+                    # Note:  this will not be an infinite loop, if the buffer
+                    #        size is zero and we missed the response, then
+                    #        self._recv will issue a TimeoutError
+                    _bs = self._recv().decode("ASCII")
+
+                # resend original command after buffer was cleared
+                _rtn = self._send_command(command, *args)
+                self.logger.info("Connection re-established.")
+            else:
+                _rtn = self._process_command_return(command, recv_str)
+        except (ConnectionError, TimeoutError, OSError) as err:
+            # Note: if the Ack/Nack protocol is not properly set (see method
+            #       read_and_set_protocol(), then TimeoutErrors can occur
+            #       even if the connection is still established.
+            #
+            self.logger.error(f"{err.__class__.__name__}: {err}")
+            self.logger.error(f"Last command '{command}' was not executed.")
+
+            _rtn = self.ack_flags.LOST_CONNECTION
+            self._update_status(connected=False)
+
+        return _rtn
 
     async def _send_command_async(self, command: str, *args):
         """A coroutine_ version of :meth:`_send_command`."""
         return self._send_command(command, *args)
 
-    def send_command(self, command: str, *args):
+    def send_command(self, command: str, *args, thread_id=None):
         """
         Send ``command`` to the motor, and receive its response.  If the
         `event loop`_ is running, then the command will be sent as
@@ -864,6 +1026,8 @@ class Motor(EventActor):
         *args:
             Any arguments to the ``command`` that will be sent with the
             motor command.
+        thread_id: int
+            ID of the thread the calling functionality is operating in.
         """
         if self._commands[command]["method_command"]:
             # execute respectively named method
@@ -874,7 +1038,10 @@ class Motor(EventActor):
             # event loop not running, just send commands directly
             return self._send_command(command, *args)
 
-        elif threading.current_thread().ident == self._thread_id:
+        elif (
+            (thread_id is not None and threading.current_thread().ident == thread_id)
+            or (threading.current_thread().ident == self._thread_id)
+        ):
             # we are in the same thread as the running event loop, just
             # send the command directly
             tk = self.loop.create_task(self._send_command_async(command, *args))
@@ -977,10 +1144,10 @@ class Motor(EventActor):
 
         if "%" in rtn_str:
             # Motor acknowledge and executed command.
-            return rtn_str
+            return self.ack_flags.ACK
         elif "*" in rtn_str:
             # Motor acknowledged command and buffered it into the queue
-            return rtn_str
+            return self.ack_flags.ACK_QUEUED
         elif "?" in rtn_str:
             # Motor negatively acknowledge command, error in command
             err_code = re.compile(
@@ -991,7 +1158,7 @@ class Motor(EventActor):
             self.logger.error(
                 f"Motor returned Nack from command {command} with error: {err_msg}."
             )
-            return rtn_str
+            return self.ack_flags.NACK
 
         recv_pattern = self._commands[command]["recv"]
         if recv_pattern is not None:
@@ -1048,11 +1215,31 @@ class Motor(EventActor):
 
         cmd_str = _header + bytes(cmd.encode("ASCII")) + _eom
         try:
-            self.socket.send(cmd_str)
-        except ConnectionError:
+            self.socket.sendall(cmd_str)
+        except (ConnectionError, OSError) as err:
+            self.logger.error(f"{err.__class__.__name__}: {err}")
+            if err.errno == errno.EPIPE:
+                self.logger.error(
+                    "It appears the server (motor) has closed the connection."
+                )
+                self.socket.close()
+            elif err.errno == errno.ESHUTDOWN:
+                self.logger.error(
+                    "It appears the socket has been closed."
+                )
+            elif err.errno == errno.EBADF:
+                self.logger.error(
+                    "The socket likely has not been created."
+                )
+
+            self.logger.info(
+                "Attempting to re-establish connection and send the command "
+                "again."
+            )
+
             self._update_status(connected=False)
             self.connect()
-            self.socket.send(cmd_str)
+            self.socket.sendall(cmd_str)
 
     def _recv(self) -> AnyStr:
         """
@@ -1076,7 +1263,9 @@ class Motor(EventActor):
         while True:
             data = self.socket.recv(16)
 
-            if not msg and _header in data:
+            if not data:
+                break
+            elif not msg and _header in data:
                 msg = data.split(_header)[1]
             else:
                 msg += data
@@ -1107,18 +1296,25 @@ class Motor(EventActor):
         send_command = self._send_command if direct_send else self.send_command
 
         _rtn = send_command("request_status")
-        _status = {
-            "alarm": False,
-            "enabled": False,
-            "fault": False,
-            "moving": False,
-            "homing": False,
-            "jogging": False,
-            "motion_in_progress": False,
-            "in_position": False,
-            "stopping": False,
-            "waiting": False,
-        }  # null status
+        if isinstance(_rtn, self.ack_flags):
+            if _rtn == self.ack_flags.LOST_CONNECTION:
+                return
+
+            _rtn = ""
+            _status = {}
+        else:
+            _status = {
+                "alarm": False,
+                "enabled": False,
+                "fault": False,
+                "moving": False,
+                "homing": False,
+                "jogging": False,
+                "motion_in_progress": False,
+                "in_position": False,
+                "stopping": False,
+                "waiting": False,
+            }  # null status
         for letter in _rtn:
             if letter == "A":
                 _status["alarm"] = True
@@ -1142,24 +1338,32 @@ class Motor(EventActor):
                 _status["waiting"] = True
 
         pos = send_command("get_position")
-        _status["position"] = pos
+        if not isinstance(pos, self.ack_flags):
+            _status["position"] = pos
+        elif pos == self.ack_flags.LOST_CONNECTION:
+            return
 
         alarm_status = self.retrieve_motor_alarm(
             defer_status_update=True,
-            direct_send=True,
+            direct_send=direct_send,
         )
-        _status.update(alarm_status)
+        if not isinstance(alarm_status, self.ack_flags):
+            _status.update(alarm_status)
+        elif alarm_status == self.ack_flags.LOST_CONNECTION:
+            return
 
-        if _status["moving"] and not self._status["moving"]:
-            self.movement_started.emit(True)
+        if "moving" not in _status:
+            pass
+        elif _status["moving"] and not self._status["moving"]:
+            self.movement_started.emit()
         elif not _status["moving"] and self._status["moving"]:
-            self.movement_finished.emit(True)
+            self.movement_finished.emit()
 
         self._update_status(**_status)
 
     def retrieve_motor_alarm(
             self, defer_status_update=False, direct_send=False
-    ) -> Dict[str, Any]:
+    ) -> Union[Dict[str, Any], "AckFlags"]:
         """
         Retrieve [if any] motor alarm codes.
 
@@ -1184,7 +1388,10 @@ class Motor(EventActor):
         # the heartbeat is already running in the event loop
         send_command = self._send_command if direct_send else self.send_command
 
+        send_command("alarm_reset")
         rtn = send_command("alarm")
+        if isinstance(rtn, self.ack_flags):
+            return rtn
 
         codes = []
         for i, digit in enumerate(rtn):
@@ -1238,10 +1445,18 @@ class Motor(EventActor):
         --------
         retrieve_motor_status
         """
-        old_HR = self.heartrate.base
+        old_HR = self.heartrate.BASE
         beats = 0
         while True:
-            heartrate = self.heartrate.active if self.is_moving else self.heartrate.base
+            if self._pause_heartbeat:
+                await asyncio.sleep(self.heartrate.PAUSE)
+                continue
+            elif not self.status["connected"]:
+                heartrate = self.heartrate.SEARCHING
+            elif self.is_moving:
+                heartrate = self.heartrate.ACTIVE
+            else:
+                heartrate = self.heartrate.BASE
 
             if heartrate != old_HR:
                 self.logger.info(
@@ -1249,15 +1464,23 @@ class Motor(EventActor):
                 )
                 beats = 0
 
-            self.retrieve_motor_status(direct_send=True)
-            # self.logger.debug("Beat status.")
+            if self.status["connected"]:
+                self.retrieve_motor_status(direct_send=True)
+            else:
+                self.logger.info("Motor connection lost...trying to reconnect.")
+                # Keep sending kill until the motor comes back online.  This will
+                # ensure the motor is stopped and the buffer (queue) is empty, so
+                # we can continue "safely" with new commands.
+                self._send_command("kill")
 
             beats += 1
             old_HR = heartrate
             await asyncio.sleep(heartrate)
 
     def terminate(self, delay_loop_stop=False):
+        self.logger.info("Terminating motor")
         super().terminate(delay_loop_stop=True)
+        self._heartbeat_task = None
 
         # TODO: add additional motor shutdown tasks (i.e. stop and disable)
 
@@ -1268,6 +1491,11 @@ class Motor(EventActor):
 
         if delay_loop_stop:
             return
+
+        # if we're stopping the loop, then all tasks need to be cancelled
+        for task in asyncio.all_tasks(self.loop):
+            if not task.done() or not task.cancelled():
+                self.loop.call_soon_threadsafe(task.cancel)
 
         self.loop.call_soon_threadsafe(self.loop.stop)
 
@@ -1288,9 +1516,10 @@ class Motor(EventActor):
             self.send_command("alarm_reset")
             alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
 
-            if alarm_msg["alarm_message"]:
+            if self._lost_connection(alarm_msg) or alarm_msg["alarm_message"]:
                 self.logger.error(
-                    f"Motor alarm could not be reset. -- {alarm_msg}")
+                    f"Motor alarm could not be reset. -- {alarm_msg}"
+                )
                 return
 
         # Note:  The Applied Motion Command Reference pdf states for
@@ -1327,7 +1556,12 @@ class Motor(EventActor):
         on_limits = any(self.status["limits"].values())
         while on_limits:
 
-            pos = self.send_command("get_position").value
+            pos = self.send_command("get_position")  # type: Union[u.Quantity, AckFlags]
+            if self._lost_connection(pos):
+                self.logger.error("Unable to move off limit due to a lost connection.")
+                break
+
+            pos = pos.value
             move_to_pos = pos + off_direction * 0.5 * self.steps_per_rev.value
 
             # disable limit alarm so the motor can be moved
@@ -1342,6 +1576,9 @@ class Motor(EventActor):
             self.sleep(4 * self.heartrate.active)
 
             alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
+            if self._lost_connection(alarm_msg):
+                self.logger.error("Unable to move off limit due to a lost connection.")
+                break
             on_limits = any(alarm_msg["limits"].values())
 
             if counts > 10:
@@ -1416,6 +1653,9 @@ class Motor(EventActor):
         new_cur = percent * self._motor["DEFAULTS"]["max_current"]
 
         ic = self.send_command("idle_current")
+        if self._lost_connection(ic):
+            self.logger.error("Unable to set current due to a lost connection.")
+            return
         new_ic = np.min(
             [self._motor["DEFAULTS"]["max_idle_current"] * new_cur, ic],
         )
@@ -1452,6 +1692,9 @@ class Motor(EventActor):
             percent = max_idle
 
         curr = self.send_command("current")
+        if self._lost_connection(curr):
+            self.logger.error("Unable to set idle current due to a lost connection.")
+            return
         new_ic = percent * curr
         self.send_command("idle_current", new_ic)
 
@@ -1483,7 +1726,13 @@ class Motor(EventActor):
 
         # set high torque
         ic = self.send_command("idle_current")
+        if self._lost_connection(ic):
+            self.logger.error("Unable to set position due to a lost connection.")
+            return
         curr = self.send_command("current")
+        if self._lost_connection(curr):
+            self.logger.error("Unable to set position due to a lost connection.")
+            return
         self.set_current(1)
         self.set_idle_current(self._motor["DEFAULTS"]["max_idle_current"])
 

@@ -95,6 +95,7 @@ class DividerExclusion(BaseExclusion):
     """
     # TODO: Can `exclude` be updated to only take "+" and "-"?
     _exclusion_type = "divider"
+    _dimensionality = 2
     region_pattern = re.compile(r"(?P<sign>[+|-])e(?P<axis>[0|1])")
 
     def __init__(
@@ -109,7 +110,7 @@ class DividerExclusion(BaseExclusion):
             ds,
             skip_ds_add=skip_ds_add,
             mb=mb,
-            exclude_region=exclude,
+            exclude=exclude,
         )
 
     @property
@@ -129,7 +130,7 @@ class DividerExclusion(BaseExclusion):
         ``excluded`` in the class parameters section for further
         details.
         """
-        return self.inputs["exclude_region"]
+        return self.inputs["exclude"]
 
     def _validate_inputs(self):
         """Validate input arguments."""

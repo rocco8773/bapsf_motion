@@ -173,6 +173,8 @@ class EventActor(BaseActor, ABC):
         if self.loop is None or not self.loop.is_running():
             # no loop has been created or loop is not running
             return None
+        elif self._thread is not None:
+            return self._thread.ident
 
         # get thread id from inside the event loop
         future = asyncio.run_coroutine_threadsafe(
@@ -265,10 +267,15 @@ class EventActor(BaseActor, ABC):
             functionality to stop the loop.  (DEFAULT: `False`)
         """
         for task in list(self.tasks):
-            task.cancel()
+            self.loop.call_soon_threadsafe(task.cancel)
             self.tasks.remove(task)
 
         if delay_loop_stop:
             return
+
+        # if we're stopping the loop, then all tasks need to be cancelled
+        for task in asyncio.all_tasks(self.loop):
+            if not task.done() or not task.cancelled():
+                self.loop.call_soon_threadsafe(task.cancel)
 
         self.loop.call_soon_threadsafe(self.loop.stop)

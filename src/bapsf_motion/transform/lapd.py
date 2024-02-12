@@ -61,7 +61,7 @@ class LaPDXYTransform(base.BaseTransform):
         movement.  (DEFAULT: ``(-1, 1)``)
 
     Examples
-    -------
+    --------
 
     Let's set up a :term:`transformer` for a probe drive mounted on
     an east port.  In this case the vertical axis motor is mounted
@@ -170,6 +170,7 @@ class LaPDXYTransform(base.BaseTransform):
     # TODO: write a full primer on how the coordinate transform was
     #       calculated
     _transform_type = "lapd_xy"
+    _dimensionality = 2
 
     def __init__(
         self,
@@ -190,13 +191,13 @@ class LaPDXYTransform(base.BaseTransform):
             mspace_polarity=mspace_polarity,
         )
 
-        naxes = len(self.axes) if self._drive is None else self._drive.naxes
-
-        if naxes != 2:
-            raise ValueError(
-                f"The LaPDXYTransform requires two axes to operate on, the "
-                f"specified probe drive has {drive.naxes} axes."
-            )
+        # naxes = len(self.axes) if self._drive is None else self._drive.naxes
+        #
+        # if naxes != 2:
+        #     raise ValueError(
+        #         f"The LaPDXYTransform requires two axes to operate on, the "
+        #         f"specified probe drive has {drive.naxes} axes."
+        #     )
 
     def _validate_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
 

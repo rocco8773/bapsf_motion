@@ -23,6 +23,7 @@ class BaseTransform(ABC):
         Keyword arguments that are specific to the subclass.
     """
     _transform_type = NotImplemented  # type: str
+    _dimensionality = NotImplemented  # type: int
 
     # TODO: add method illustrate_transform() to plot and show how the
     #       space in transformed
@@ -32,8 +33,13 @@ class BaseTransform(ABC):
         if isinstance(drive, Drive):
             self._drive = drive
             self._axes = list(range(drive.naxes))
-        elif isinstance(drive, (list, tuple)) and all(isinstance(dr, (int, str)) for dr in drive):
+        elif (
+                isinstance(drive, (list, tuple))
+                and all(isinstance(dr, (int, str)) for dr in drive)
+        ):
             # hidden mode for debugging purposes
+            # - In this case drive is a list or tuple of int or str values
+            #   that correspond to the axes' names.
 
             # TODO: ADD A WARNING HERE THAT WE ARE IN A DEBUG MODE
 
@@ -52,15 +58,21 @@ class BaseTransform(ABC):
 
         # validate matrix
         matrix = self._matrix(
-            np.array([0.0] * len(self.axes))[..., np.newaxis]
+            np.array([0.0] * len(self._axes))[..., np.newaxis]
         )
         if not isinstance(matrix, np.ndarray):
             raise TypeError
-        elif matrix.shape != tuple(2 * [len(self.axes) + 1]) + (1,):
+        elif matrix.shape != tuple(2 * [len(self._axes) + 1]) + (1,):
             # matrix needs to be square with each dimension being one size
             # larger than the number axes the matrix transforms...the last
             # dimensions allows for shift translations
             raise ValueError(f"matrix.shape = {matrix.shape}")
+        elif self._dimensionality > 0 and self._dimensionality != len(self._axes):
+            raise ValueError(
+                f"The transform was design for probe drives with "
+                f"{self._dimensionality} axes, but was given a probe drive "
+                f"with {len(self._axes)} axes."
+            )
 
     def __call__(self, points, to_coords="drive"):
         r"""
@@ -158,8 +170,18 @@ class BaseTransform(ABC):
     def transform_type(self) -> str:
         """
         String naming the coordinate transformation type.  This is
-        unique among all subclasses of `BaseTransform`."""
+        unique among all subclasses of `BaseTransform`.
+        """
         return self._transform_type
+
+    @property
+    def dimensionality(self) -> int:
+        """
+        The designed dimensionality of the transform.  If ``-1``, then
+        the transform does not have a fixed dimensionality, and it can
+        morph to the associated |Drive|.
+        """
+        return self._dimensionality
 
     @property
     def config(self) -> Dict[str, Any]:
@@ -245,10 +267,14 @@ class BaseTransform(ABC):
         # 2. __call__ has conditioned points, so it will always be M x N
         # 3. __call__ has validated to_coords
 
-        return (
+        _matrix = (
             self._matrix_to_drive(points) if to_coords == "drive"
             else self._matrix_to_motion_space(points)
         )
+
+        if _matrix.shape == tuple(2 * [self.naxes + 1]):
+            return _matrix[..., np.newaxis]
+        return _matrix
 
     def _convert(self, points, to_coords="drive"):
         r"""

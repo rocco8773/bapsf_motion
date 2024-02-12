@@ -1,3 +1,4 @@
-__all__ = ["GroupLayout", "TabPage", "Ui_MainWindow"]
+"""Subpackage containing GUI's for `bapsf_motion`."""
+__all__ = ["ConfigureGUI"]
 
-from bapsf_motion.gui.main_window import GroupLayout, TabPage, Ui_MainWindow
+from bapsf_motion.gui.configure import ConfigureGUI

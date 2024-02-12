@@ -135,6 +135,7 @@ class LaPDXYExclusion(BaseExclusion):
           }
     """
     _exclusion_type = "lapd_xy"
+    _dimensionality = 2
     _port_location_to_angle = {
         "e": 0,
         "east": 0,
@@ -151,11 +152,12 @@ class LaPDXYExclusion(BaseExclusion):
         self,
         ds: xr.Dataset,
         *,
-        diameter: Real = 100,
-        pivot_radius: Real = 58.771,
-        port_location: Union[str, Real] = "E",
-        cone_full_angle: Real = 80,
+        diameter: float = 100,
+        pivot_radius: float = 58.771,
+        port_location: Union[str, float] = "E",
+        cone_full_angle: float = 80,
         include_cone: bool = True,
+        skip_ds_add: bool = False,
     ):
         super().__init__(
             ds,
@@ -164,6 +166,7 @@ class LaPDXYExclusion(BaseExclusion):
             port_location=port_location,
             cone_full_angle=cone_full_angle,
             include_cone=include_cone,
+            skip_ds_add=skip_ds_add,
         )
 
     @property

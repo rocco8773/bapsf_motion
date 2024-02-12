@@ -8,7 +8,7 @@ __actors__ = ["Axis"]
 import asyncio
 import logging
 
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from bapsf_motion.actors.base import EventActor
 from bapsf_motion.actors.motor_ import Motor
@@ -111,6 +111,14 @@ class Axis(EventActor):
     def _initialize_tasks(self):
         return
 
+    def run(self, auto_run=True):
+        super().run(auto_run=auto_run)
+
+        if self.motor is None:
+            return
+
+        self.motor.run(auto_run=auto_run)
+
     def terminate(self, delay_loop_stop=False):
         self.motor.terminate(delay_loop_stop=True)
         super().terminate(delay_loop_stop=delay_loop_stop)
@@ -130,6 +138,11 @@ class Axis(EventActor):
     def motor(self) -> Motor:
         """Instance of the |Motor| object that belongs to |Axis|."""
         return self._motor
+
+    @property
+    def ip(self):
+        """IPv4 address for the Axis' motor"""
+        return self.motor.ip
 
     @property
     def is_moving(self) -> bool:
@@ -176,6 +189,21 @@ class Axis(EventActor):
         revolution of the motor (:attr:`motor`).
         """
         return self._units_per_rev
+
+    @units_per_rev.setter
+    def units_per_rev(self, value: Union[float, u.Quantity]):
+        """
+        Update the number of units translated per full revolution of the
+        motor.
+        """
+        if isinstance(value, float) and value > 0.0:
+            self._units_per_rev = value * self.units / u.rev
+        elif (
+            isinstance(value, u.Quantity)
+            and value.unit == self.units / u.rev
+            and value > 0.0
+        ):
+            self._units_per_rev = value
 
     @property
     def equivalencies(self):

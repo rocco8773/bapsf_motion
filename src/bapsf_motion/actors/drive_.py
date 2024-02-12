@@ -104,6 +104,15 @@ class Drive(EventActor):
     def _initialize_tasks(self):
         return
 
+    def run(self, auto_run=True):
+        super().run(auto_run=auto_run)
+
+        if self.axes is None or not self.axes:
+            return
+
+        for ax in self.axes:
+            ax.run(auto_run=auto_run)
+
     def _validate_axes(self, settings: List[Dict[str, Any]]) -> Tuple[Dict[str, Any]]:
         """
         Validate the |Axis| arguments for all axes defined in
@@ -158,10 +167,16 @@ class Drive(EventActor):
                 f"{set(required_parameters) - set(settings)}."
             )
 
-        for key, value in required_parameters.items():
-            if not isinstance(settings[key], value):
+        for key, _type in required_parameters.items():
+            if isinstance(settings[key], str) and isinstance(_type, float):
+                try:
+                    settings[key] = float(settings[key])
+                except ValueError:
+                    pass
+
+            if not isinstance(settings[key], _type):
                 raise ValueError(
-                    f"For axis setting '{key}' expected type {value}, got "
+                    f"For axis setting '{key}' expected type {_type}, got "
                     f"type {type(settings[key])}."
                 )
 
@@ -208,6 +223,8 @@ class Drive(EventActor):
     @property
     def axes(self) -> List[Axis]:
         """List of the drive's axis instances."""
+        if self._axes is None:
+            self._axes = ()
         return list(self._axes)
 
     @property
