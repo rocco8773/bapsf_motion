@@ -25,7 +25,6 @@ from sphinx.application import Sphinx
 
 sys.path.insert(0, os.path.abspath("."))
 sys.path.insert(0, os.path.abspath(".."))
-sys.path.insert(0, os.path.abspath("../src"))
 
 from bapsf_motion import __version__ as release  # noqa
 
@@ -166,7 +165,7 @@ autodoc_typehints_format = "short"
 
 # Configure sphinx-issues
 
-issues_github_path = "BaPSF/bapsfdaq_motion"
+issues_github_path = "BaPSF/bapsf_motion"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -181,7 +180,7 @@ source_suffix = ".rst"
 root_doc = "index"
 
 # General information about the project.
-project = "bapsfdaq_motion"
+project = "bapsf_motion"
 author = "BaPSF Community"
 copyright = f"2022–{datetime.utcnow().year}, {author}"
 

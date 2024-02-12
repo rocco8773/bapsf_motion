@@ -13,7 +13,7 @@ if sys.version_info > (3, 7):
 else:
     from importlib_metadata import version, PackageNotFoundError
 
-from bapsf_motion import actors, gui, motion_builder, transform, utils
+from bapsf_motion import actors, motion_builder, transform, utils
 
 # define version
 try:
@@ -37,7 +37,7 @@ except PackageNotFoundError:
         from setuptools_scm import get_version
 
         __version__ = get_version(
-            root="../..", relative_to=__file__, fallback_version=fallback_version
+            root="../", relative_to=__file__, fallback_version=fallback_version
         )
         del get_version
         warn_add = "setuptools_scm failed to detect the version"
