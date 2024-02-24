@@ -33,6 +33,7 @@ class AckFlags(Enum):
     ACK_QUEUED = 2
     NACK = 3
     LOST_CONNECTION = 4
+    MALFORMED = 5
 
 
 class _HeartRate(NamedTuple):
@@ -705,7 +706,7 @@ class Motor(EventActor):
         bit 8 =Full Duplex in RS-422
         """
         rtn = self.send_command("protocol")
-        if self._lost_connection(rtn):
+        if self._lost_connection(rtn) or rtn == self.ack_flags.MALFORMED:
             return
         _bits = f"{rtn:09b}"
 
@@ -724,7 +725,7 @@ class Motor(EventActor):
             # the protocol again.
             #
             rtn = self.send_command("protocol")
-            if self._lost_connection(rtn):
+            if self._lost_connection(rtn) or rtn == self.ack_flags.MALFORMED:
                 return
             _bits = f"{rtn:09b}"
 
@@ -976,32 +977,20 @@ class Motor(EventActor):
             cmd_str = self._process_command(command, *args)
             recv_str = self._send_raw_command(cmd_str) if "?" not in cmd_str else cmd_str
 
-            if not self.status["connected"]:
-                # connection reestablished ... the motor buffer my have old
-                # commands in it, so we need to empty the buffer so new sent
-                # and received commands are synced
-                self._update_status(connected=True)
+            if recv_str == self.ack_flags.LOST_CONNECTION:
+                raise ConnectionError("Lost connection to motor.")
 
-                _ack = self._send_raw_command("SK")  # kill
-                _bs = self._send_raw_command("BS")  # check contents of buffer
-                while "BS" not in _bs:
-                    # Note:  this will not be an infinite loop, if the buffer
-                    #        size is zero and we missed the response, then
-                    #        self._recv will issue a TimeoutError
-                    _bs = self._recv().decode("ASCII")
+            _rtn = self._process_command_return(command, *args, recv_str=recv_str)
 
-                # resend original command after buffer was cleared
-                _rtn = self._send_command(command, *args)
-                self.logger.info("Connection re-established.")
-            else:
-                _rtn = self._process_command_return(command, recv_str)
         except (ConnectionError, TimeoutError, OSError) as err:
             # Note: if the Ack/Nack protocol is not properly set (see method
             #       read_and_set_protocol(), then TimeoutErrors can occur
             #       even if the connection is still established.
             #
-            self.logger.error(f"{err.__class__.__name__}: {err}")
-            self.logger.error(f"Last command '{command}' was not executed.")
+            self.logger.error(
+                f"Last command '{command}' was not executed.",
+                exc_info=err,
+            )
 
             _rtn = self.ack_flags.LOST_CONNECTION
             self._update_status(connected=False)
@@ -1112,7 +1101,7 @@ class Motor(EventActor):
 
         return cmd_str + processor(args[0])
 
-    def _process_command_return(self, command: str, rtn_str: str) -> Any:
+    def _process_command_return_string(self, command: str, rtn_str: str) -> Any:
         """
         Process the returned string from the sent motor command.  The
         regular expression pattern for matching the returned string
@@ -1137,10 +1126,12 @@ class Motor(EventActor):
         Examples
         --------
 
-        >>> self._process_command_return("speed", "VE 5.500")
+        >>> self._process_command_return_string("speed", "VE 5.500")
         5.5
 
         """
+
+        _send_str = self._commands[command]["send"]
 
         if "%" in rtn_str:
             # Motor acknowledge and executed command.
@@ -1159,6 +1150,12 @@ class Motor(EventActor):
                 f"Motor returned Nack from command {command} with error: {err_msg}."
             )
             return self.ack_flags.NACK
+        elif not isinstance(rtn_str, str) or _send_str not in rtn_str:
+            self.logger.error(
+                f"The return string for command '{command} ({_send_str})'"
+                f" is malformed, received '{rtn_str}'."
+            )
+            return self.ack_flags.MALFORMED
 
         recv_pattern = self._commands[command]["recv"]
         if recv_pattern is not None:
@@ -1172,6 +1169,35 @@ class Motor(EventActor):
             return rtn * units
 
         return rtn
+
+    def _process_command_return(self, command: str, *args, recv_str: str) -> Any:
+        _rtn = self._process_command_return_string(command, recv_str)
+
+        if (
+                len(args) == 0
+                and (_rtn == self.ack_flags.ACK or _rtn == self.ack_flags.ACK_QUEUED)
+                and self._commands[command]["recv"] is not None
+        ):
+            # command had NO arguments and expected a response with data
+            # suspecting the command got buffered and acknowledge, and the
+            # real data is coming in a followup communication
+            _rtn = self.ack_flags.MALFORMED
+
+        if _rtn != self.ack_flags.MALFORMED:
+            return _rtn
+
+        while _rtn == self.ack_flags.MALFORMED:
+            # command and motor buffer have come out of sync
+            #
+            # Note:  this will not be an infinite loop, if the buffer
+            #        size is zero and we missed the response, then
+            #        self._recv will issue a TimeoutError
+
+            recv = self._recv()
+            recv_str = recv.decode("ASCII")
+            _rtn = self._process_command_return(command, *args, recv_str=recv_str)
+
+        return _rtn
 
     def _send_raw_command(self, cmd: str):
         """
@@ -1193,8 +1219,16 @@ class Motor(EventActor):
 
         """
         self._send(cmd)
-        data = self._recv()
-        return data.decode("ASCII")
+
+        try:
+            return self._recv().decode("ASCII")
+        except TimeoutError as err:
+            self.logger.warning(
+                f"Lost connection while trying to receive response to "
+                f"commend '{cmd}'.",
+                exc_info=err,
+            )
+            return self.ack_flags.LOST_CONNECTION
 
     def _send(self, cmd: str):
         """
@@ -1214,10 +1248,11 @@ class Motor(EventActor):
         _eom = b"\r"  # end of message
 
         cmd_str = _header + bytes(cmd.encode("ASCII")) + _eom
+        self.logger.debug(f"Sending command string '{cmd_str}'.")
         try:
             self.socket.sendall(cmd_str)
         except (ConnectionError, OSError) as err:
-            self.logger.error(f"{err.__class__.__name__}: {err}")
+            self.logger.error(f"Unable to send command {cmd_str}.", exc_info=err)
             if err.errno == errno.EPIPE:
                 self.logger.error(
                     "It appears the server (motor) has closed the connection."
@@ -1239,7 +1274,8 @@ class Motor(EventActor):
 
             self._update_status(connected=False)
             self.connect()
-            self.socket.sendall(cmd_str)
+            if self.status["connected"]:
+                self.socket.sendall(cmd_str)
 
     def _recv(self) -> AnyStr:
         """
@@ -1274,6 +1310,7 @@ class Motor(EventActor):
                 msg = msg.split(_eom)[0]
                 break
 
+        self.logger.debug(f"Received string '{msg}'.")
         return msg
 
     def retrieve_motor_status(self, direct_send=False):
@@ -1556,10 +1593,19 @@ class Motor(EventActor):
         on_limits = any(self.status["limits"].values())
         while on_limits:
 
+            if counts > 10:
+                self.logger.error(
+                    "Moving off limits - Was not able to move of limit."
+                )
+                break
+
             pos = self.send_command("get_position")  # type: Union[u.Quantity, AckFlags]
             if self._lost_connection(pos):
                 self.logger.error("Unable to move off limit due to a lost connection.")
                 break
+            elif pos == self.ack_flags.MALFORMED:
+                counts += 1
+                continue
 
             pos = pos.value
             move_to_pos = pos + off_direction * 0.5 * self.steps_per_rev.value
@@ -1580,12 +1626,6 @@ class Motor(EventActor):
                 self.logger.error("Unable to move off limit due to a lost connection.")
                 break
             on_limits = any(alarm_msg["limits"].values())
-
-            if counts > 10:
-                self.logger.error(
-                    "Moving off limits - Was not able to move of limit."
-                )
-                break
 
             counts += 1
 
@@ -1656,6 +1696,12 @@ class Motor(EventActor):
         if self._lost_connection(ic):
             self.logger.error("Unable to set current due to a lost connection.")
             return
+        elif ic == self.ack_flags.MALFORMED:
+            self.logger.error(
+                "Unable to set current due to the motor response not matching"
+                " the expected response."
+            )
+            return
         new_ic = np.min(
             [self._motor["DEFAULTS"]["max_idle_current"] * new_cur, ic],
         )
@@ -1695,6 +1741,12 @@ class Motor(EventActor):
         if self._lost_connection(curr):
             self.logger.error("Unable to set idle current due to a lost connection.")
             return
+        elif curr == self.ack_flags.MALFORMED:
+            self.logger.error(
+                "Unable to set idle current due to the motor response not"
+                " matching the expected response."
+            )
+            return
         new_ic = percent * curr
         self.send_command("idle_current", new_ic)
 
@@ -1729,10 +1781,24 @@ class Motor(EventActor):
         if self._lost_connection(ic):
             self.logger.error("Unable to set position due to a lost connection.")
             return
+        elif ic == self.ack_flags.MALFORMED:
+            self.logger.error(
+                "Unable to confirm set position due to the motor response"
+                " not matching the expected response."
+            )
+            return
+
         curr = self.send_command("current")
         if self._lost_connection(curr):
             self.logger.error("Unable to set position due to a lost connection.")
             return
+        elif curr == self.ack_flags.MALFORMED:
+            self.logger.error(
+                "Unable to confirm set position due to motor response"
+                " not matching the expected response."
+            )
+            return
+
         self.set_current(1)
         self.set_idle_current(self._motor["DEFAULTS"]["max_idle_current"])
 
