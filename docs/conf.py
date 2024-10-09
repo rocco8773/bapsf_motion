@@ -217,7 +217,6 @@ exclude_patterns = [
     "**.ipynb_checkpoints",
     "common_links.rst",
     "**Untitled*",
-    "notebooks",
 ]
 
 html_extra_path = ["robots.txt"]
@@ -478,25 +477,13 @@ texinfo_documents = [
 
 # -- NBSphinx options
 
+if os.environ.get("READTHEDOCS"):
+    nbsphinx_kernel_name = "python3"
+
+nbsphinx_allow_errors = True
 nbsphinx_thumbnails = {
-    # "notebooks/*": "_static/graphic-circular.png",
-    # "notebooks/*/*": "_static/graphic-circular.png",
-    # "notebooks/diagnostics/langmuir_analysis": (
-    #     "_static/notebook_images/langmuir_analysis.png"
-    # ),
-    # "notebooks/formulary/magnetosphere": (
-    #     "_static/notebook_images/mms.png"
-    # ),  # public domain
-    # "notebooks/getting_started/units": (
-    #     "_static/notebook_images/astropy_logo_notext.png"
-    # ),  # CC BY-SA
-    # "notebooks/formulary/solar_plasma_beta": "_static/notebook_images/coronal_loops.png",
-    # "notebooks/plasma/grids_cartesian": (
-    #     "_static/notebook_images/uniform_grid_thumbnail.png"
-    # ),
-    # "notebooks/plasma/grids_nonuniform": (
-    #     "_static/notebook_images/nonuniform_grid_thumbnail.png"
-    # ),
+    "notebooks/*": "_static/BaPSF_Logo_Color_RGB.png",
+    "notebooks/*/*": "_static/BaPSF_Logo_Color_RGB.png",
 }
 
 # adapted from
