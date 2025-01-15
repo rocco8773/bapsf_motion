@@ -7,10 +7,12 @@ import warnings
 from PySide6.QtCore import Qt, Signal, Slot, QSize
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QSizePolicy,
     QTextEdit,
     QVBoxLayout,
@@ -35,6 +37,71 @@ from bapsf_motion.transform import BaseTransform
 from bapsf_motion.transform.helpers import transform_registry
 from bapsf_motion.utils import _deepcopy_dict, loop_safe_stop, toml, dict_equal
 from bapsf_motion.utils import units as u
+
+
+class MSpaceMessageBox(QMessageBox):
+    """
+    Modal warning dialog box to warn the user the motion space has yet
+    to be defined.  Thus, there are no restrictions on probe drive
+    movement, and it is up to the user to prevent any collisions.
+    """
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+
+        self._display_dialog = True
+
+        self.setWindowTitle("Motion Space NOT Defined")
+        self.setText(
+            "Motion Space is NOT defined, so there are no restrictions "
+            "on probe drive motion.  It is up to the user to avoid "
+            "collisions.\n\n"
+            "Proceed with movement?"
+        )
+        self.setIcon(QMessageBox.Icon.Warning)
+        self.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Abort
+        )
+        self.setDefaultButton(QMessageBox.StandardButton.Abort)
+
+        _cb = QCheckBox("Suppress future warnings for this motion group.")
+        self.setCheckBox(_cb)
+
+        self.checkBox().checkStateChanged.connect(self._update_display_dialog)
+
+    @property
+    def display_dialog(self) -> bool:
+        return self._display_dialog
+
+    @display_dialog.setter
+    def display_dialog(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            return
+
+        # ensure the display boolean (display_dialog) is in sync
+        # with the dialog check box ... these two values are supposed
+        # to be NOTs of each other
+        check_state = self.checkBox().checkState()
+        if check_state is Qt.CheckState.Checked is value:
+            self.checkBox().setChecked(not value)
+
+        self._display_dialog = value
+
+    @Slot(Qt.CheckState)
+    def _update_display_dialog(self, state: Qt.CheckState) -> None:
+        self.display_dialog = not (state is Qt.CheckState.Checked)
+
+    def exec(self) -> bool:
+        if not self.display_dialog:
+            return True
+
+        button = super().exec()
+
+        if button == QMessageBox.StandardButton.Yes:
+            # Make sure the Abort button always remains the default choice
+            self.setDefaultButton(QMessageBox.StandardButton.Abort)
+            return True
+        elif button == QMessageBox.StandardButton.Abort:
+            return False
 
 
 class AxisControlWidget(QWidget):
@@ -122,6 +189,10 @@ class AxisControlWidget(QWidget):
 
         # Define ADVANCED WIDGETS
 
+        self.mspace_warning_dialog = None
+        if isinstance(parent, DriveControlWidget):
+            self.mspace_warning_dialog = parent.mspace_warning_dialog
+
         self.setLayout(self._define_layout())
         self._connect_signals()
 
@@ -206,13 +277,22 @@ class AxisControlWidget(QWidget):
         self._move_to(pos)
 
     def _move_to(self, target_ax_pos):
+        target_pos = self.mg.position.value
+        target_pos[self.axis_index] = target_ax_pos
+
         if self.mg.drive.is_moving:
+            self.logger.info(
+                "Probe drive is currently moving.  Did NOT perform move "
+                f"to {target_pos}."
+            )
             return
 
-        position = self.mg.position.value
-        position[self.axis_index] = target_ax_pos
+        proceed = True
+        if not isinstance(self.mg.mb, MotionBuilder):
+            proceed = self.mspace_warning_dialog.exec()
 
-        self.mg.move_to(position)
+        if proceed:
+            self.mg.move_to(target_pos)
 
     def _update_display_of_axis_status(self):
         if self._mg.terminated:
@@ -382,6 +462,8 @@ class DriveControlWidget(QWidget):
         # Define TEXT WIDGETS
         # Define ADVANCED WIDGETS
 
+        self.mspace_warning_dialog = MSpaceMessageBox(parent=self)
+
         self.setLayout(self._define_layout())
         self._connect_signals()
 
@@ -474,7 +556,20 @@ class DriveControlWidget(QWidget):
             for acw in self._axis_control_widgets
             if not acw.isHidden()
         ]
-        self.mg.move_to(target_pos)
+
+        if self.mg.drive.is_moving:
+            self.logger.info(
+                "Probe drive is currently moving.  Did NOT perform move "
+                f"to {target_pos}."
+            )
+            return
+
+        proceed = True
+        if not isinstance(self.mg.mb, MotionBuilder):
+            proceed = self.mspace_warning_dialog.exec()
+
+        if proceed:
+            self.mg.move_to(target_pos)
 
     def _stop_move(self):
         self.mg.stop()
@@ -794,7 +889,7 @@ class MGWidget(QWidget):
 
         if "name" not in self._mg_config or self._mg_config["name"] == "":
             self._mg_config["name"] = "A New MG"
-        self.logger.info(f"starting _mg_config: {self._mg_config}")
+        self.logger.info(f"starting mg_config:\n {self._mg_config}")
         self._update_mg_name_widget()
 
         self._spawn_motion_group()
@@ -922,8 +1017,10 @@ class MGWidget(QWidget):
     def _define_mspace_display_layout(self):
         ...
 
-    def _build_drive_defaults(self):
-
+    def _build_drive_defaults(self) -> List[Tuple[str, Dict[str, Any]]]:
+        # Returned _drive_defaults is a List of Tuple pairs
+        # - 1st Tuple element is the dropdown name
+        # - 2nd Tuple element is the dictionary configuration
         if self._defaults is None or "drive" not in self._defaults:
             self._drive_defaults = [("Custom Drive", {})]
             return self._drive_defaults
@@ -1503,16 +1600,23 @@ class MGWidget(QWidget):
 
     def _validate_motion_group(self):
         self.logger.info("Validating motion group")
-        vmg_name = self._validate_motion_group_name()
 
+        vmg_name = self._validate_motion_group_name()
         vdrive = self._validate_drive()
 
-        if not isinstance(self.mg.mb, MotionBuilder):
+        if not isinstance(self.mg, MotionGroup):
+            mb = None
+            transform = None
+        else:
+            mb = self.mg.mb
+            transform = self.mg.transform
+
+        if not isinstance(mb, MotionBuilder):
             self.mb_btn.set_invalid()
             self.mb_btn.setToolTip("Motion space needs to be defined.")
             self.done_btn.setEnabled(False)
         else:
-            if "layer" not in self.mg.mb.config:
+            if "layer" not in mb.config:
                 self.mb_btn.set_invalid()
                 self.mb_btn.setToolTip(
                     "A point layer needs to be defined to generate a motion list."
@@ -1521,7 +1625,7 @@ class MGWidget(QWidget):
                 self.mb_btn.set_valid()
                 self.mb_btn.setToolTip("")
 
-        if not isinstance(self.mg.transform, BaseTransform):
+        if not isinstance(transform, BaseTransform):
             self.transform_btn.set_invalid()
             self.done_btn.setEnabled(False)
 
