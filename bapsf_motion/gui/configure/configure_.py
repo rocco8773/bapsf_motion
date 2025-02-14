@@ -277,7 +277,7 @@ class ConfigureGUI(QMainWindow):
 
         # define "important" qt widgets
         self._log_widget = QLogger(self._logger, parent=self)
-        self._run_widget = RunWidget(self)
+        self._run_widget = RunWidget(parent=self)
         self._mg_widget = None  # type: Union[MGWidget, None]
 
         self._stacked_widget = QStackedWidget(parent=self)
@@ -368,7 +368,7 @@ class ConfigureGUI(QMainWindow):
         return self._logging_config_dict
 
     def replace_rm(self, config):
-        if isinstance(self.rm, RunManager) and not self.rm.terminate():
+        if isinstance(self.rm, RunManager) and not self.rm.terminated:
             self.rm.terminate()
 
         self.logger.info(f"Replacing the run manager with new config: {config}.")
