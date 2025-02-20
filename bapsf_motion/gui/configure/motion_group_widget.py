@@ -13,8 +13,8 @@ os.environ["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
 import pygame  # noqa
 
 from abc import abstractmethod
-from PySide6.QtCore import Qt, Signal, Slot, QSize, QRunnable, QThreadPool, QObject
-from PySide6.QtGui import QDoubleValidator, QFont
+from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QSize, QThreadPool, QObject
+from PySide6.QtGui import QDoubleValidator, QFont, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -42,7 +42,18 @@ from bapsf_motion.gui.configure.drive_overlay import DriveConfigOverlay
 from bapsf_motion.gui.configure.helpers import gui_logger
 from bapsf_motion.gui.configure.motion_builder_overlay import MotionBuilderConfigOverlay
 from bapsf_motion.gui.configure.transform_overlay import TransformConfigOverlay
-from bapsf_motion.gui.widgets import GearValidButton, HLinePlain, LED, StyleButton
+from bapsf_motion.gui.widgets import (
+    DiscardButton,
+    DoneButton,
+    GearValidButton,
+    HLinePlain,
+    IconButton,
+    LED,
+    StyleButton,
+    StopButton,
+    ValidButton,
+    ZeroButton,
+)
 from bapsf_motion.motion_builder import MotionBuilder
 from bapsf_motion.transform import BaseTransform
 from bapsf_motion.transform.helpers import transform_registry
@@ -304,35 +315,34 @@ class AxisControlWidget(QWidget):
         self.setFixedWidth(120)
 
         # Define BUTTONS
-        _btn = StyleButton(qta.icon("fa.arrow-up"), "", parent=self)
-        _btn.setIconSize(QSize(48, 48))
+        _btn = IconButton("fa.arrow-up", parent=self)
+        _btn.setIconSize(48)
         self.jog_forward_btn = _btn
 
-        _btn = StyleButton(qta.icon("fa.arrow-down"), "", parent=self)
-        _btn.setIconSize(QSize(48, 48))
+        _btn = IconButton("fa.arrow-down", parent=self)
+        _btn.setIconSize(48)
         self.jog_backward_btn = _btn
 
-        _btn = StyleButton("FWD LIMIT", parent=self)
+        _btn = ValidButton("FWD LIMIT", parent=self)
         _btn.update_style_sheet(
             {"background-color": "rgb(255, 95, 95)"},
             action="checked"
         )
-        _btn.setCheckable(True)
         self.limit_fwd_btn = _btn
 
-        _btn = StyleButton("BWD LIMIT", parent=self)
+        _btn = ValidButton("BWD LIMIT", parent=self)
         _btn.update_style_sheet(
             {"background-color": "rgb(255, 95, 95)"},
             action="checked"
         )
-        _btn.setCheckable(True)
         self.limit_bwd_btn = _btn
 
         _btn = StyleButton("HOME", parent=self)
         _btn.setEnabled(False)
         self.home_btn = _btn
+        self.home_btn.setHidden(True)
 
-        _btn = StyleButton("ZERO", parent=self)
+        _btn = ZeroButton("ZERO", parent=self)
         self.zero_btn = _btn
 
         # Define TEXT WIDGETS
@@ -545,7 +555,6 @@ class AxisControlWidget(QWidget):
         if self._mg.terminated:
             return
 
-        # pos = self.axis.motor.status["position"]
         pos = self.position
         self.position_label.setText(f"{pos.value:.2f} {pos.unit}")
 
@@ -553,8 +562,8 @@ class AxisControlWidget(QWidget):
             self.target_position_label.setText(f"{pos.value:.2f}")
 
         limits = self.axis.motor.status["limits"]
-        self.limit_fwd_btn.setChecked(limits["CW"])
-        self.limit_bwd_btn.setChecked(limits["CCW"])
+        self.limit_fwd_btn.set_valid(state=limits["CW"])
+        self.limit_bwd_btn.set_valid(state=limits["CCW"])
 
     def _validate_jog_value(self):
         _txt = self.jog_delta_label.text()
@@ -825,31 +834,25 @@ class DriveDesktopController(DriveBaseController):
 
     def _initialize_widgets(self):
         # BUTTON WIDGETS
-        _btn = StyleButton("Move \n To")
+        _btn = StyleButton("Move \n To", parent=self)
         _btn.setFixedWidth(100)
         _btn.setMinimumHeight(100)
         font = _btn.font()
-        font.setPointSize(26)
-        font.setBold(False)
+        font.setPointSize(20)
         _btn.setFont(font)
         self.move_to_btn = _btn
 
-        _btn = StyleButton("Home \n All")
+        _btn = StyleButton("Home \n All", parent=self)
         _btn.setFixedWidth(100)
         _btn.setMinimumHeight(100)
-        font = _btn.font()
-        font.setPointSize(26)
-        font.setBold(False)
         _btn.setFont(font)
         _btn.setEnabled(False)
         self.home_btn = _btn
+        self.home_btn.setVisible(False)
 
-        _btn = StyleButton("Zero \n All")
+        _btn = ZeroButton("Zero \n All", parent=self)
         _btn.setFixedWidth(100)
         _btn.setMinimumHeight(100)
-        font = _btn.font()
-        font.setPointSize(26)
-        font.setBold(False)
         _btn.setFont(font)
         self.zero_all_btn = _btn
 
@@ -869,19 +872,19 @@ class DriveDesktopController(DriveBaseController):
         sub_layout.addWidget(self.zero_all_btn)
 
         # Sub-Layout #2
-        _text = QLabel("Position")
+        _text = QLabel("Position", parent=self)
         font = _text.font()
         font.setPointSize(14)
         _text.setFont(font)
         _pos_label = _text
 
-        _text = QLabel("Target")
+        _text = QLabel("Target", parent=self)
         font = _text.font()
         font.setPointSize(14)
         _text.setFont(font)
         _target_label = _text
 
-        _text = QLabel("Jog Δ")
+        _text = QLabel("Jog Δ", parent=self)
         font = _text.font()
         font.setPointSize(14)
         _text.setFont(font)
@@ -894,16 +897,17 @@ class DriveDesktopController(DriveBaseController):
             _pos_label,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
         )
+        sub_layout2.addSpacing(6)
         sub_layout2.addWidget(
             _target_label,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
         )
-        sub_layout2.addStretch(14)
+        sub_layout2.addSpacing(108)
         sub_layout2.addWidget(
             _jog_delta_label,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
         )
-        sub_layout2.addStretch(20)
+        sub_layout2.addStretch(1)
 
         layout = QHBoxLayout()
         layout.addLayout(sub_layout)
@@ -961,12 +965,11 @@ class DriveGameController(DriveBaseController):
         self._pygame_joystick_runner = None  # type: Union[PyGameJoystickRunner, None]
         self._thread_pool = QThreadPool(parent=self)
 
-        _font = QFont()
-        _font.setPointSize(12)
-
         # BUTTON WIDGETS
         _btn = StyleButton("Refresh List", parent=self)
         _btn.setFixedHeight(32)
+        _font = _btn.font()
+        _font.setPointSize(12)
         _btn.setFont(_font)
         self.refresh_controller_list_btn = _btn
 
@@ -1254,10 +1257,11 @@ class DriveControlWidget(QWidget):
         self._mg = None
 
         self.setEnabled(True)
+        self.setFixedHeight(450)
 
         # Define BUTTONS
 
-        _btn = StyleButton("STOP")
+        _btn = StopButton(parent=self)
         _btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         _btn.setFixedWidth(200)
         _btn.setMinimumHeight(400)
@@ -1265,15 +1269,9 @@ class DriveControlWidget(QWidget):
         font.setPointSize(32)
         font.setBold(True)
         _btn.setFont(font)
-        _btn.update_style_sheet(
-            {
-                "background-color": "rgb(255, 75, 75)",
-                "border": "3px solid rgb(170, 170, 170)",
-            },
-        )
         self.stop_1_btn = _btn
 
-        _btn = StyleButton("STOP")
+        _btn = StopButton(parent=self)
         _btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         _btn.setFixedWidth(200)
         _btn.setMinimumHeight(400)
@@ -1281,12 +1279,6 @@ class DriveControlWidget(QWidget):
         font.setPointSize(32)
         font.setBold(True)
         _btn.setFont(font)
-        _btn.update_style_sheet(
-            {
-                "background-color": "rgb(255, 75, 75)",
-                "border": "3px solid rgb(170, 170, 170)",
-            },
-        )
         self.stop_2_btn = _btn
 
         # Define TEXT WIDGETS
@@ -1298,12 +1290,17 @@ class DriveControlWidget(QWidget):
         self.stacked_controller_widget.addWidget(self.desktop_controller_widget)
 
         _combo = QComboBox(parent=self)
+        _font = _combo.font()
+        _font.setPointSize(12)
         _combo.setEditable(True)
+        _combo.lineEdit().setFont(_font)
         _combo.lineEdit().setReadOnly(True)
         _combo.lineEdit().setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
         _combo.addItems(["Desktop", "Game Controller"])
+        _combo.setFixedHeight(32)
+        _combo.setFixedWidth(175)
         self.controller_combo_box = _combo
 
         self.setLayout(self._define_layout())
@@ -1329,11 +1326,6 @@ class DriveControlWidget(QWidget):
         _font = _label.font()
         _font.setPointSize(16)
         _label.setFont(_font)
-
-        self.controller_combo_box.setFixedHeight(32)
-        self.controller_combo_box.setFixedWidth(175)
-        _font.setPointSize(14)
-        self.controller_combo_box.setFont(_font)
 
         central_banner_layout.addStretch(1)
         central_banner_layout.addWidget(
@@ -1553,7 +1545,7 @@ class MGWidget(QWidget):
 
         # Define TEXT WIDGETS
 
-        _widget = QTextEdit()
+        _widget = QTextEdit(parent=self)
         _widget.setSizePolicy(
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Expanding,
@@ -1564,7 +1556,7 @@ class MGWidget(QWidget):
         _widget.setMinimumWidth(350)
         self.toml_widget = _widget
 
-        _widget = QLineEdit()
+        _widget = QLineEdit(parent=self)
         font = _widget.font()
         font.setPointSize(16)
         _widget.setFont(font)
@@ -1573,36 +1565,12 @@ class MGWidget(QWidget):
 
         # Define BUTTONS
 
-        _btn = StyleButton("Add / Update")
-        _btn.setFixedWidth(200)
-        _btn.setFixedHeight(48)
-        font = _btn.font()
-        font.setPointSize(24)
-        _btn.setFont(font)
+        _btn = DoneButton("Add / Update", parent=self)
         _btn.setEnabled(False)
         self.done_btn = _btn
 
-        _btn = StyleButton("Discard")
-        _btn.setFixedWidth(300)
-        _btn.setFixedHeight(48)
-        font = _btn.font()
-        font.setPointSize(24)
-        font.setBold(True)
-        _btn.setFont(font)
-        _btn.update_style_sheet(
-            {"background-color": "rgb(255, 110, 110)"}
-        )
+        _btn = DiscardButton(parent=self)
         self.discard_btn = _btn
-
-        _btn = StyleButton("Load a Default")
-        _btn.setFixedWidth(250)
-        _btn.setFixedHeight(36)
-        font = _btn.font()
-        font.setPointSize(20)
-        _btn.setFont(font)
-        _btn.setEnabled(False)
-        self.quick_mg_btn = _btn
-        self.quick_mg_btn.setVisible(False)
 
         _icon = QLabel(parent=self)
         _icon.setPixmap(qta.icon("mdi.steering").pixmap(24, 24))
@@ -1662,6 +1630,12 @@ class MGWidget(QWidget):
         _w.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
+        _w.setIconSize(QSize(20, 20))
+        _w.setToolTip(
+            "Flagged items indicate the base transforms, which are not "
+            "pre-configured."
+        )
+        _w.setToolTipDuration(30000)
         self._transform_dropdown = _w
         self._populate_transform_dropdown()
 
@@ -1768,7 +1742,6 @@ class MGWidget(QWidget):
         layout.addLayout(self._define_mg_builder_layout(), 2)
         layout.addWidget(HLinePlain(parent=self))
         layout.addWidget(self.drive_control_widget)
-        # layout.addStretch(1)
 
         return layout
 
@@ -1776,8 +1749,6 @@ class MGWidget(QWidget):
         layout = QHBoxLayout()
 
         layout.addWidget(self.discard_btn)
-        layout.addStretch()
-        layout.addWidget(self.quick_mg_btn)
         layout.addStretch()
         layout.addWidget(self.done_btn)
 
@@ -1789,15 +1760,14 @@ class MGWidget(QWidget):
         layout.addSpacing(12)
         layout.addLayout(self._define_central_builder_layout())
         layout.addSpacing(12)
+        # probe position graph widgets should go HERE
+        # - i.e. self._define_mspace_display_layout()
         layout.addStretch(1)
 
         return layout
 
-    def _def_mg_control_layout(self):
-        ...
-
     def _define_toml_layout(self):
-        label = QLabel("Motion Group Configuration")
+        label = QLabel("Motion Group Configuration", parent=self)
         label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
         )
@@ -1813,7 +1783,7 @@ class MGWidget(QWidget):
 
     def _define_central_builder_layout(self):
 
-        _label = QLabel("Name:  ")
+        _label = QLabel("Name:  ", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt. AlignmentFlag.AlignLeft
         )
@@ -1823,9 +1793,9 @@ class MGWidget(QWidget):
         _label.setFont(font)
         name_label = _label
 
-        sub_layout = QHBoxLayout()
-        sub_layout.addWidget(name_label)
-        sub_layout.addWidget(self.mg_name_widget)
+        title_sub_layout = QHBoxLayout()
+        title_sub_layout.addWidget(name_label)
+        title_sub_layout.addWidget(self.mg_name_widget)
 
         drive_sub_layout = QHBoxLayout()
         drive_sub_layout.addWidget(self.drive_label)
@@ -1844,7 +1814,7 @@ class MGWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.addSpacing(18)
-        layout.addLayout(sub_layout)
+        layout.addLayout(title_sub_layout)
         layout.addSpacing(18)
         layout.addLayout(drive_sub_layout)
         layout.addLayout(mb_sub_layout)
@@ -2120,6 +2090,7 @@ class MGWidget(QWidget):
         allowed_transforms = self.transform_registry.get_names_by_dimensionality(naxes)
 
         # populate dropdown
+        _template_icon = qta.icon("mdi6.map-marker-star-outline")
         for tr_name, tr_config in self.transform_defaults:
             index = self.transform_dropdown.findText(tr_name)
             if index != -1:
@@ -2135,6 +2106,11 @@ class MGWidget(QWidget):
                 continue
 
             self.transform_dropdown.addItem(tr_name)
+
+            # add icon for base/template transforms
+            if tr_name != "Custom Transform" and tr_name == tr_config["type"]:
+                count = self.transform_dropdown.count()
+                self.transform_dropdown.setItemIcon(count-1, _template_icon)
 
         if tr_name_stored is not None:
             index = self.transform_dropdown.findText(tr_name_stored)
@@ -2322,7 +2298,7 @@ class MGWidget(QWidget):
     def _rerun_drive(self):
         self.logger.info("Restarting the motion group's drive")
 
-        if self.mg.drive is None:
+        if not isinstance(self.mg, MotionGroup) or self.mg.drive is None:
             return
 
         drive_config = self.mg.drive.config

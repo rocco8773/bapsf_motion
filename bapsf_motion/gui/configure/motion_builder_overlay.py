@@ -2,6 +2,7 @@ __all__ = ["MotionBuilderConfigOverlay"]
 
 import ast
 import inspect
+import math
 import numpy as np
 import matplotlib as mpl
 import re
@@ -9,6 +10,7 @@ import re
 from PySide6.QtCore import Qt, Slot, QSize
 from PySide6.QtGui import QIcon, QDoubleValidator
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QGridLayout,
@@ -28,6 +30,8 @@ from bapsf_motion.actors import MotionGroup
 from bapsf_motion.gui.configure import motion_group_widget as mgw
 from bapsf_motion.gui.configure.bases import _ConfigOverlay
 from bapsf_motion.gui.widgets import (
+    DiscardButton,
+    DoneButton,
     HLinePlain,
     QLineEditSpecialized,
     StyleButton,
@@ -60,19 +64,35 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         #     points layer
         # _params_widget:
         #     top enclosing widget for setting and configuring parameter inputs
-        #     for an exclusion or point layer
+        #     for an exclusion or point layer (i.e. widget that contains all
+        #     configuring widgets)
         # _params_field_widget:
-        #     child widget of _params_widget that contains the actual inpu fields
-        #     for configuring _param_inputs
+        #     child widget of _params_widget that contains the actual input fields
+        #     for configuring _param_inputs (i.e. widget container for all the
+        #     input widgets that map to the layer/exclusion input args/kwargs)
         # _params_input_widgets:
         #     dictionary of the actual widgets that control the _param_inputs
-        #     values
+        #     values (i.e. the input widgets that map to the layer/exclusion
+        #     input args/kwargs)
         self._param_inputs = {}  # type: Dict[str, Any]
-        self._params_widget = None  # type: Union[QWidget, None]
-        self._params_field_widget = None  # type: Union[QWidget, None]
+        self._params_widget = QWidget(parent=self)
+        self._params_field_widget = QWidget(parent=self._params_widget)
         self._params_input_widgets = {}  # type: Dict[str, Dict[str, QLineEditSpecialized]]
 
-        # Define BUTTONS
+        self._params_widget.setMinimumHeight(300)
+        size_policy = self._params_widget.sizePolicy()
+        size_policy.setRetainSizeWhenHidden(True)
+        self._params_widget.setSizePolicy(size_policy)
+
+        # SET UP LEFT WIDGETS (i.e. list boxes)
+        self.layer_list_box = QListWidget(parent=self)
+        self.layer_list_box.setMinimumHeight(250)
+        _font = self.layer_list_box.font()
+        _font.setPointSize(12)
+        self.layer_list_box.setFont(_font)
+        self.exclusion_list_box = QListWidget(parent=self)
+        self.exclusion_list_box.setMinimumHeight(250)
+        self.exclusion_list_box.setFont(_font)
 
         self.add_ly_btn = self._generate_btn_widget("ADD")
         self.remove_ly_btn = self._generate_btn_widget("REMOVE")
@@ -86,31 +106,67 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.edit_ex_btn = self._generate_btn_widget("EDIT")
         self.edit_ex_btn.setEnabled(False)
 
-        self.params_add_btn = self._generate_btn_widget("Add / Update")
-        self.params_discard_btn = self._generate_btn_widget("Discard")
-
-        # Define TEXT WIDGETS
-        _txt = QComboBox(parent=self)
-        _txt.setMinimumWidth(200)
-        _txt.setMaximumWidth(400)
-        _txt.setEditable(False)
-        # _txt.addItems(_available)
-        # _txt.setCurrentText(_type)
-        self.params_combo_box = _txt
-
-        _txt = QLabel("", parent=self)
-        self.params_label = _txt
-
-        # Define ADVANCED WIDGETS
-
-        self.layer_list_box = QListWidget(parent=self)
-        self.layer_list_box.setMinimumHeight(250)
-        self.exclusion_list_box = QListWidget(parent=self)
-        self.exclusion_list_box.setMinimumHeight(250)
-
+        # SET UP PLOT WIDGET
         self.mpl_canvas = FigureCanvas()
         self.mpl_canvas.setParent(self)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        self.mpl_canvas_frame = QFrame(parent=self)
+        self.mpl_canvas_frame.setObjectName("mpl_canvas_frame")
+        self.mpl_canvas_frame.setStyleSheet(
+            """
+            QFrame#mpl_canvas_frame {
+                border: 2px solid rgb(125, 125, 125);
+                border-radius: 5px; 
+                padding: 0px;
+                margin: 0px;
+            }
+            """
+        )
+        self.mpl_canvas_frame.setLayout(QVBoxLayout())
+        self.mpl_canvas_frame.layout().addWidget(self.mpl_canvas)
+
+        # SET UP INPUT WIDGETS (those in self._params_widget)
+
+        _txt = QLabel("", parent=self._params_widget)
+        _font = _txt.font()
+        _font.setPixelSize(16)
+        _font.setFamily("Courier New")
+        _font.setBold(True)
+        _txt.setFont(_font)
+        self.params_label = _txt
+
+        _btn = DoneButton("Add / Update", parent=self._params_widget)
+        _btn.setFixedHeight(34)
+        _font = _btn.font()
+        _font.setPointSize(12)
+        _btn.setFont(_font)
+        _btn.shrink_width()
+        self.params_add_btn = _btn
+
+        _btn = DiscardButton(parent=self._params_widget)
+        _btn.setFixedHeight(34)
+        _btn.setFont(_font)
+        _btn.shrink_width(scale=2)
+        self.params_discard_btn = _btn
+
+        _txt = QLabel("Type :", parent=self._params_widget)
+        _font = _txt.font()
+        _font.setPixelSize(16)
+        _font.setBold(False)
+        _txt.setFont(_font)
+        self.select_type_label = _txt
+
+        _txt = QComboBox(parent=self._params_widget)
+        _txt.setFixedHeight(34)
+        _txt.setFixedWidth(250)
+        _txt.setEditable(False)
+        font = _txt.font()
+        font.setPointSize(12)
+        _txt.setFont(font)
+        self.params_combo_box = _txt
+
+        # non-widget initialization
 
         self._initialize_motion_builder()
         self.setLayout(self._define_layout())
@@ -178,6 +234,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         sub_layout.addWidget(self._define_sidebar_widget())
         sub_layout.addSpacing(8)
         sub_layout.addWidget(VLinePlain(parent=self))
+        sub_layout.addSpacing(8)
         sub_layout.addWidget(self._define_right_area_widget())
 
         layout = QVBoxLayout()
@@ -226,8 +283,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
     def _define_sidebar_widget(self):
         _widget = QWidget(parent=self)
-        _widget.setMinimumWidth(350)
-        _widget.setMaximumWidth(500)
+        _widget.setFixedWidth(400)
         _widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(_widget)
@@ -247,9 +303,10 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(_widget)
-        layout.addWidget(self.mpl_canvas)
-        layout.addWidget(HLinePlain(parent=self))
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.mpl_canvas_frame)
         layout.addWidget(self._define_params_widget())
+        layout.addStretch(1)
 
         return _widget
 
@@ -479,35 +536,27 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         ...
 
     def _define_params_widget(self):
-        _widget = QWidget(parent=self)
-        _widget.setMinimumHeight(300)
-        size_policy = _widget.sizePolicy()
-        size_policy.setRetainSizeWhenHidden(True)
-        _widget.setSizePolicy(size_policy)
-        layout = QVBoxLayout(_widget)
 
         self.params_add_btn.setEnabled(False)
 
-        hline = HLinePlain(parent=self)
-        hline.set_color(30, 30, 30)
-        hline.setLineWidth(2)
-
-        self._params_field_widget = QWidget(parent=_widget)
-
         banner_layout = QHBoxLayout()
         banner_layout.setContentsMargins(0, 0, 0, 0)
-        banner_layout.setSpacing(8)
-
+        banner_layout.addSpacing(12)
         banner_layout.addWidget(
             self.params_label,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
         )
-        banner_layout.addSpacing(20)
+        banner_layout.addStretch(1)
+        banner_layout.addWidget(
+            self.select_type_label,
+            alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+        )
+        banner_layout.addSpacing(4)
         banner_layout.addWidget(
             self.params_combo_box,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
         )
-        banner_layout.addStretch()
+        banner_layout.addStretch(1)
         banner_layout.addWidget(
             self.params_discard_btn,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
@@ -516,13 +565,23 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             self.params_add_btn,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
         )
+        banner_layout.addSpacing(12)
+        banner_widget = QWidget(parent=self._params_widget)
+        banner_widget.setLayout(banner_layout)
+        banner_widget.setFixedHeight(38)
 
-        layout.addLayout(banner_layout)
+        hline = HLinePlain(parent=self._params_widget)
+        hline.set_color(125, 125, 125)
+        hline.setLineWidth(2)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(banner_widget)
         layout.addWidget(hline)
         layout.addWidget(self._params_field_widget)
         layout.addStretch()
 
-        self._params_widget = _widget
+        self._params_widget.setLayout(layout)
         self._params_widget.hide()
         return self._params_widget
 
@@ -540,17 +599,28 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         params = _registry.get_input_parameters(_type)
 
         _widget = QWidget(parent=self._params_widget)
-        layout = QGridLayout(_widget)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
 
-        # layout.setColumnStretch(0, 2)
-        # layout.setColumnStretch(1, 2)
-        # layout.setColumnStretch(2, 4)
-        # layout.setColumnStretch(3, 1)
-        # layout.setColumnStretch(4, 1)
+        layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(0)
+        layout.setVerticalSpacing(4)
+
+        layout.setColumnMinimumWidth(0, 48)
+        layout.setColumnMinimumWidth(2, 8)
+        layout.setColumnMinimumWidth(4, 32)
+        layout.setColumnMinimumWidth(5, 32)
+        layout.setColumnMinimumWidth(6, 48)
+
+        layout.setColumnStretch(0, 0)
+        # layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 0)
+        layout.setColumnStretch(3, 4)
+        layout.setColumnStretch(4, 0)
+        layout.setColumnStretch(5, 0)
+        layout.setColumnStretch(6, 0)
 
         ii = 0
+        _row_height = 24
         for key, val in params.items():
             # determine the seeded value for the transform input
             if key in self._param_inputs:
@@ -563,48 +633,63 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
                 self._param_inputs[key] = default
 
             _txt = QLabel(key, parent=_widget)
+            _txt.setFixedHeight(_row_height)
+            _txt.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
             font = _txt.font()
-            font.setPointSize(16)
-            font.setBold(True)
+            font.setPointSize(14)
             _txt.setFont(font)
-            _label = _txt
+            _variable_name = _txt
 
             annotation = val['param'].annotation
             if inspect.isclass(annotation):
                 annotation = annotation.__name__
             annotation = f"{annotation}".split(".")[-1]
 
-            _txt = QLabel(annotation, parent=_widget)
-            font = _txt.font()
-            font.setPointSize(16)
-            font.setBold(True)
-            _txt.setFont(font)
-            _type = _txt
+            _txt = QLabel("", parent=_widget)
+            _txt.setAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
+            )
+            _icon = qta.icon("msc.symbol-type-parameter")
+            # size = math.floor(0.9 * _row_height)
+            size = _row_height
+            _txt.setPixmap(_icon.pixmap(QSize(size, size)))
+            _txt.setToolTip(annotation)
+            _txt.setToolTipDuration(30000)
+            _type_icon = _txt
 
             text = "" if default is None else f"{default}"
             _txt = QLineEditSpecialized(text, parent=_widget)
             _txt.setObjectName(key)
             _txt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            _txt.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             font = _txt.font()
-            font.setPointSize(16)
+            font.setPointSize(14)
             _txt.setFont(font)
             _input = _txt
             _input.editingFinishedPayload.connect(self._update_param_inputs)
 
             _txt = QLabel("", parent=_widget)
-            _icon = qta.icon("fa.question-circle-o").pixmap(QSize(16, 16))  # type: QIcon
-            _txt.setPixmap(_icon)
+            _txt.setAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
+            )
+            _icon = qta.icon("fa.question-circle-o")
+            size = math.floor(0.95 * _row_height)
+            _txt.setPixmap(_icon.pixmap(QSize(size, size)))
             _txt.setToolTip("\n".join(val["desc"]))
-            _txt.setToolTipDuration(10000)
-            _txt.setMaximumWidth(24)
-            _help = _txt
+            _txt.setToolTipDuration(30000)
+            _help_icon = _txt
 
-            layout.addWidget(_label, ii, 0, alignment=Qt.AlignmentFlag.AlignRight)
-            layout.addWidget(_type, ii, 1, alignment=Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(_input, ii, 2, alignment=Qt.AlignmentFlag.AlignLeft)
-            layout.addWidget(_help, ii, 3, alignment=Qt.AlignmentFlag.AlignLeft)
+            layout.setRowMinimumHeight(ii, _row_height)
+            layout.setRowStretch(ii, 0)
+
+            layout.addWidget(_variable_name, ii, 1)
+            layout.addWidget(_input, ii, 3)
+            layout.addWidget(_type_icon, ii, 4)
+            layout.addWidget(_help_icon, ii, 5)
+
             ii += 1
 
+        _widget.setLayout(layout)
         return _widget
 
     # -- WIDGET INTERACTION FUNCTIONALITY --
@@ -628,14 +713,23 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _available = self.exclusion_registry.get_names_by_dimensionality(
             self.dimensionality
         )
-        if self.mb.exclusions and isinstance(self.mb.exclusions[0], GovernExclusion):
-            # remove govern exclusion since we can only have one defined
-            for name in tuple(_available):
-                ex = self.exclusion_registry.get_exclusion(name)
-                if issubclass(ex, GovernExclusion):
-                    _available.remove(name)
+        _icons = [None] * len(_available)
+        _exclude_governors = (
+            bool(self.mb.exclusions)
+            and isinstance(self.mb.exclusions[0], GovernExclusion)
+        )
+        _govern_icon = qta.icon("mdi.crown")
+        for ii, name in enumerate(tuple(_available)):
+            ex = self.exclusion_registry.get_exclusion(name)
+            if _exclude_governors and issubclass(ex, GovernExclusion):
+                _available.remove(name)
+                _icons = None
+                continue
 
-        self._refresh_params_combo_box(_available)
+            if issubclass(ex, GovernExclusion):
+                _icons[ii] = _govern_icon
+
+        self._refresh_params_combo_box(_available, icons=_icons, _type="exclusion")
         self.params_combo_box.setObjectName("exclusion")
 
         self._refresh_params_widget()
@@ -647,25 +741,46 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         if name is None:
             return
 
-        ex = None
+        current_ex = None
         for _ex in self.mb.exclusions:
             if _ex.name == name:
-                ex = _ex
+                current_ex = _ex
                 break
-        if ex is None:
+        if current_ex is None:
             return
 
         if not self._params_widget.isHidden():
             self._hide_and_clear_params_widget()
 
-        self.params_label.setText(ex.name)
+        self.params_label.setText(current_ex.name)
         _available = self.exclusion_registry.get_names_by_dimensionality(
             self.dimensionality
         )
-        self._refresh_params_combo_box(_available, ex.exclusion_type)
+        _icons = [None] * len(_available)
+        _exclude_governors = (
+                bool(self.mb.exclusions)
+                and isinstance(self.mb.exclusions[0], GovernExclusion)
+        )
+        _govern_icon = qta.icon("mdi.crown")
+        for ii, name in enumerate(tuple(_available)):
+            ex = self.exclusion_registry.get_exclusion(name)
+            if _exclude_governors and issubclass(ex, GovernExclusion):
+                _available.remove(name)
+                _icons = None
+                continue
+
+            if issubclass(ex, GovernExclusion):
+                _icons[ii] = _govern_icon
+
+        self._refresh_params_combo_box(
+            _available,
+            icons=_icons,
+            current=current_ex.exclusion_type,
+            _type="exclusion",
+        )
         self.params_combo_box.setObjectName("exclusion")
 
-        self._param_inputs = ex.config.copy()
+        self._param_inputs = current_ex.config.copy()
         self._param_inputs.pop("type")
 
         self._refresh_params_widget()
@@ -728,7 +843,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _available = self.layer_registry.get_names_by_dimensionality(
             self.dimensionality
         )
-        self._refresh_params_combo_box(_available, ly.layer_type)
+        self._refresh_params_combo_box(_available, current=ly.layer_type)
         self.params_combo_box.setObjectName("layer")
 
         self._param_inputs = ly.config.copy()
@@ -754,9 +869,13 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self.configChanged.emit()
 
-    def _refresh_params_combo_box(self, items, current: Optional[str] = None):
-        self.params_combo_box.currentTextChanged.disconnect()
+    def _refresh_params_combo_box(
+        self, items, icons=None, current: Optional[str] = None, _type: Optional[str] = None,
+    ):
+        # disable combo box signals during depopulation
+        self.params_combo_box.blockSignals(True)
 
+        # update items
         self.params_combo_box.setObjectName("")
         self.params_combo_box.clear()
         self.params_combo_box.addItems(items)
@@ -765,9 +884,37 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         else:
             self.params_combo_box.setCurrentText(current)
 
-        self.params_combo_box.currentTextChanged.connect(
-            self._refresh_params_widget_from_combo_box_change
-        )
+        # add item icons
+        if icons is None:
+            icons = []
+        for ii, icon in enumerate(icons):
+            if icon is None or icon == "":
+                continue
+
+            self.params_combo_box.setItemIcon(ii, icon)
+
+        # set combo box tool tip
+        if _type == "exclusion":
+            self.params_combo_box.setToolTip(
+                "Items with a crown are Govern exclusions.  You can only "
+                "select one Govern exclusion."
+            )
+            self.params_combo_box.setToolTipDuration(30000)
+        else:
+            self.params_combo_box.setToolTip("")
+            self.params_combo_box.setToolTipDuration(0)        # set combo box tool tip
+        if _type == "exclusion":
+            self.params_combo_box.setToolTip(
+                "Items with a crown are Govern exclusions.  You can only "
+                "select one Govern exclusion."
+            )
+            self.params_combo_box.setToolTipDuration(30000)
+        else:
+            self.params_combo_box.setToolTip("")
+            self.params_combo_box.setToolTipDuration(0)
+
+        # re-enable signals
+        self.params_combo_box.blockSignals(False)
 
     def _refresh_params_widget(self):
         self.params_add_btn.setEnabled(False)

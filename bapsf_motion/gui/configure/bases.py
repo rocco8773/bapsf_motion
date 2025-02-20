@@ -4,13 +4,13 @@ import logging
 
 from abc import abstractmethod
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget, QSizePolicy
 from typing import Union
 
 from bapsf_motion.actors import MotionGroup
 from bapsf_motion.gui.configure.helpers import gui_logger
-from bapsf_motion.gui.widgets import StyleButton
+from bapsf_motion.gui.widgets import DiscardButton, DoneButton
 from bapsf_motion.gui.configure import motion_group_widget as mgw
 
 
@@ -24,13 +24,15 @@ class _OverlayWidget(QWidget):
         # self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet("_OverlayWidget{ border: 2px solid black }")
 
-        self.background_fill_color = QColor(30, 30, 30, 120)
-        self.background_pen_color = QColor(30, 30, 30, 120)
+        self.background_fill_color = QColor(30, 30, 30, 100)
+        self.background_pen_color = QColor(30, 30, 30, 200)
 
-        self.overlay_fill_color = QColor(50, 50, 50)
-        self.overlay_pen_color = QColor(90, 90, 90)
+        _palette = self.style().standardPalette()
+        self.overlay_fill_color = _palette.color(_palette.ColorRole.Window)
+
+        self.overlay_pen = QPen(QColor(60, 60, 60))
+        self.overlay_pen.setWidth(3)
 
         self._margins = [0.01, 0.01]  # [ w_margin / width, h_margin / height]
         self._set_contents_margins(*self._margins)
@@ -55,7 +57,9 @@ class _OverlayWidget(QWidget):
         qp.drawRoundedRect(0, 0, s.width(), s.height(), 3, 3)
 
         # draw overlay
-        qp.setPen(self.overlay_pen_color)
+        _pen = QPen(self.overlay_pen)
+        _pen.setWidth(3)
+        qp.setPen(_pen)
         qp.setBrush(self.overlay_fill_color)
 
         self.contentsRect().width()
@@ -89,25 +93,11 @@ class _ConfigOverlay(_OverlayWidget):
 
         # Define BUTTONS
 
-        _btn = StyleButton("Add / Update", parent=self)
-        _btn.setFixedWidth(200)
-        _btn.setFixedHeight(48)
-        font = _btn.font()
-        font.setPointSize(24)
-        _btn.setFont(font)
+        _btn = DoneButton("Add / Update", parent=self)
         _btn.setEnabled(False)
         self.done_btn = _btn
 
-        _btn = StyleButton("Discard", parent=self)
-        _btn.setFixedWidth(250)
-        _btn.setFixedHeight(48)
-        font = _btn.font()
-        font.setPointSize(24)
-        font.setBold(True)
-        _btn.setFont(font)
-        _btn.update_style_sheet(
-            {"background-color": "rgb(255, 110, 110)"}
-        )
+        _btn = DiscardButton(parent=self)
         self.discard_btn = _btn
 
     def _connect_signals(self):

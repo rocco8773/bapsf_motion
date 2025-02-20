@@ -98,16 +98,6 @@ class AxisConfigWidget(QWidget):
 
         # Define ADVANCED WIDGETS
 
-        self.setStyleSheet(
-            """
-            AxisConfigWidget QLabel {
-                border: 0px;
-            }
-
-            QLabel {padding: 0px}
-            """
-        )
-
         self.setLayout(self._define_layout())
         self._connect_signals()
 
@@ -122,7 +112,7 @@ class AxisConfigWidget(QWidget):
         self.configChanged.connect(self._update_limit_mode_widget)
 
     def _define_layout(self):
-        _label = QLabel("IP:  ")
+        _label = QLabel("IP:  ", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
         )
@@ -132,7 +122,7 @@ class AxisConfigWidget(QWidget):
         _label.setFont(font)
         ip_label = _label
 
-        _label = QLabel("cm / rev")
+        _label = QLabel("cm / rev", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
         )
@@ -142,7 +132,7 @@ class AxisConfigWidget(QWidget):
         _label.setFont(font)
         cm_per_rev_label = _label
 
-        _label = QLabel("online")
+        _label = QLabel("online", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
         )
@@ -173,7 +163,7 @@ class AxisConfigWidget(QWidget):
     def _define_limit_mode_layout(self):
         layout = QGridLayout()
 
-        _label = QLabel("Limit\nMode")
+        _label = QLabel("Limit\nMode", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
         )
@@ -182,7 +172,7 @@ class AxisConfigWidget(QWidget):
         font.setPointSize(16)
         _label.setFont(font)
 
-        _energized_label = QLabel("energized")
+        _energized_label = QLabel("energized", parent=self)
         _energized_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
@@ -194,7 +184,7 @@ class AxisConfigWidget(QWidget):
         font.setPointSize(12)
         _energized_label.setFont(font)
 
-        _deenergized_label = QLabel("de-energized")
+        _deenergized_label = QLabel("de-energized", parent=self)
         _deenergized_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
@@ -206,7 +196,7 @@ class AxisConfigWidget(QWidget):
         font.setPointSize(12)
         _deenergized_label.setFont(font)
 
-        _none_label = QLabel("NONE")
+        _none_label = QLabel("NONE", parent=self)
         _none_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
@@ -438,39 +428,31 @@ class DriveConfigOverlay(_ConfigOverlay):
 
         # Define BUTTONS
 
-        _btn = StyleButton("Load a Default")
-        _btn.setFixedWidth(250)
-        _btn.setFixedHeight(36)
-        font = _btn.font()
-        font.setPointSize(20)
-        _btn.setFont(font)
-        _btn.setEnabled(False)
-        self.load_default_btn = _btn
-
-        _btn = StyleButton("Add Axis")
+        _btn = StyleButton("Add Axis", parent=self)
         _btn.setFixedWidth(120)
         _btn.setFixedHeight(36)
         font = _btn.font()
         font.setPointSize(20)
         _btn.setFont(font)
         _btn.setEnabled(False)
+        _btn.setHidden(True)
         self.add_axis_btn = _btn
 
-        _btn = StyleButton("Validate")
-        _btn.setFixedWidth(120)
+        _btn = StyleButton("Validate", parent=self)
+        _btn.setFixedWidth(150)
         _btn.setFixedHeight(36)
         font = _btn.font()
-        font.setPointSize(20)
+        font.setPointSize(16)
         _btn.setFont(font)
         self.validate_btn = _btn
 
-        _btn = LED()
+        _btn = LED(parent=self)
         _btn.set_fixed_height(32)
         _btn.off_color = "d43729"
         self.validate_led = _btn
 
         # Define TEXT WIDGETS
-        _widget = QLineEdit()
+        _widget = QLineEdit(parent=self)
         font = _widget.font()
         font.setPointSize(16)
         _widget.setFont(font)
@@ -526,13 +508,11 @@ class DriveConfigOverlay(_ConfigOverlay):
         layout = QHBoxLayout()
         layout.addWidget(self.discard_btn)
         layout.addStretch()
-        layout.addWidget(self.load_default_btn)
-        layout.addStretch()
         layout.addWidget(self.done_btn)
         return layout
 
     def _define_second_row_layout(self):
-        _label = QLabel("Drive Name:  ")
+        _label = QLabel("Drive Name:  ", parent=self)
         _label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
         )
@@ -540,7 +520,6 @@ class DriveConfigOverlay(_ConfigOverlay):
         font = _label.font()
         font.setPointSize(16)
         _label.setFont(font)
-        _label.setStyleSheet("border: 0px")
         name_label = _label
 
         layout = QHBoxLayout()
@@ -707,25 +686,26 @@ class DriveConfigOverlay(_ConfigOverlay):
         self._change_validation_state(True)
 
     def _spawn_axis_widget(self, name):
-        _frame = QFrame()
+        _frame = QFrame(parent=self)
         _frame.setLayout(QVBoxLayout())
 
         _widget = AxisConfigWidget(name, parent=self)
         _widget.set_ip_handler(self._validate_ip)
         _widget.configChanged.connect(self._change_validation_state)
         _widget.configChanged.connect(self._terminate_drive)
-        # _widget.setStyleSheet(
-        #     "border: 3px solid rgb(95, 95, 95);"
-        #     "border-radius: 5px;"
-        # )
 
         self.axis_widgets.append(_widget)
 
         _frame.layout().addWidget(_widget)
+        _frame.setObjectName("acw_frame")
         _frame.setStyleSheet(
-            "border: 3px solid rgb(95, 95, 95);"
-            "border-radius: 5px;"
-            "padding: 6px;"
+            """
+            QFrame#acw_frame {
+                border: 2px solid rgb(60, 60, 60);
+                border-radius: 5px;
+                padding: 6px;
+            }
+            """
         )
 
         return _frame
