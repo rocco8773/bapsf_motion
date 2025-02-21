@@ -1510,7 +1510,11 @@ class MGWidget(QWidget):
         deployed_ips = []
         if isinstance(self._parent.rm, RunManager):
             for mg in self._parent.rm.mgs.values():
-                if mg_config is not None and dict_equal(mg_config, mg.config):
+                if (
+                    mg_config is not None
+                    and mg_config["name"] == mg.config["name"]
+                    and dict_equal(mg_config, mg.config)
+                ):
                     # assume we are editing an existing motion group
                     continue
 
@@ -1524,7 +1528,7 @@ class MGWidget(QWidget):
             "ips": deployed_ips,
         }
 
-        self._logger = gui_logger
+        self._logger = logging.getLogger(f"{gui_logger.name}.MGW")
 
         self._mg = None
         self._mg_index = None
@@ -1535,12 +1539,15 @@ class MGWidget(QWidget):
 
         self._defaults = None if defaults is None else _deepcopy_dict(defaults)
         self._drive_defaults = None
+        self._custom_drive_index = -1
         self._build_drive_defaults()
 
         self._transform_defaults = None
         self._build_transform_defaults()
 
         self._mb_defaults = None
+        self._custom_mb_index = -1
+        self._mb_combo_last_index = -1
         self._build_mb_defaults()
 
         # Define TEXT WIDGETS
@@ -1832,6 +1839,7 @@ class MGWidget(QWidget):
         # - 2nd Tuple element is the dictionary configuration
         if self._defaults is None or "drive" not in self._defaults:
             self._drive_defaults = [("Custom Drive", {})]
+            self._custom_drive_index = 0
             return self._drive_defaults
 
         _drive_defaults = {"Custom Drive": {}}
@@ -1842,15 +1850,34 @@ class MGWidget(QWidget):
         if "name" in _defaults.keys():
             # only one drive defined
             _name = _defaults["name"]
-            if _name not in _drive_defaults.keys():
+
+            # exclude drives that are already deployed
+            exclude = False
+            ips = [ax["ip"] for ax in _defaults["axes"].values()]
+            if (
+                len(set(ips) - set(self._deployed_restrictions["ips"])) != len(ips)
+            ):
+                exclude = True
+
+            # add to defaults
+            if not exclude and _name not in _drive_defaults.keys():
                 _drive_defaults[_name] = _deepcopy_dict(_defaults)
         else:
             for key, entry in _defaults.items():
                 _name = entry["name"]
+
+                # do not add duplicate defaults
                 if _name in _drive_defaults.keys():
-                    # do not add duplicate defaults
                     continue
 
+                # exclude drives that are already deployed
+                ips = [ax["ip"] for ax in entry["axes"].values()]
+                if (
+                    len(set(ips) - set(self._deployed_restrictions["ips"])) != len(ips)
+                ):
+                    continue
+
+                # add to defaults
                 _drive_defaults[_name] = _deepcopy_dict(entry)
 
         # convert to list of 2-element tuples
@@ -1860,10 +1887,12 @@ class MGWidget(QWidget):
                 self._drive_defaults.insert(0, (key, val))
             else:
                 self._drive_defaults.append((key, val))
+        self._custom_drive_index = 0 if default_name == "Custom Drive" else 1
 
         return self._drive_defaults
 
     def _build_mb_defaults(self):
+        self._custom_mb_index = 0
         if self._defaults is None or "motion_builder" not in self._defaults:
             self._mb_defaults = [("Custom Motion Builder", {})]
             return self._mb_defaults
@@ -1902,6 +1931,9 @@ class MGWidget(QWidget):
         for key, val in _mb_defaults_dict.items():
             if key == default_name:
                 self._mb_defaults.insert(0, (key, val))
+
+                if key != "Custom Motion Builder":
+                    self._custom_mb_index = 1
             else:
                 self._mb_defaults.append((key, val))
 
@@ -1951,7 +1983,7 @@ class MGWidget(QWidget):
             default_key = "identity"
 
         # convert to list of 2-element tuples
-        self._transform_defaults = [("Custom Transform", {})]
+        self._transform_defaults = []
         for key, val in _defaults_dict.items():
             if key == default_key:
                 self._transform_defaults.insert(0, (key, val))
@@ -1981,11 +2013,27 @@ class MGWidget(QWidget):
         self._update_drive_control_widget()
 
     def _populate_drive_dropdown(self):
-        for item in self.drive_defaults:
-            self.drive_dropdown.addItem(item[0])
+        # always clear dropdown before population to prevent duplicating
+        # an already populated dropdown
+        self.drive_dropdown.clear()
 
-        # set default drive
-        self.drive_dropdown.setCurrentIndex(0)
+        # populate
+        for item in self.drive_defaults:
+            drive_name = item[0]
+            if drive_name == "Custom Drive":
+                drive_name = item[1].get("name", "Custom Drive")
+
+            self.drive_dropdown.addItem(drive_name)
+
+        # set drive
+        self.drive_dropdown.blockSignals(True)
+        drive_index = 0
+        if isinstance(self.mg, MotionGroup) and isinstance(self.mg.drive, Drive):
+            drive_name = self.mg.drive.config["name"]
+            drive_index = self.drive_dropdown.findText(drive_name)
+        self.drive_dropdown.setCurrentIndex(drive_index)
+
+        self.drive_dropdown.blockSignals(False)
 
     def _populate_mb_dropdown(self):
         self.logger.info("Populating Motion Builder dropdown")
@@ -2000,6 +2048,7 @@ class MGWidget(QWidget):
 
         self.mb_dropdown.clear()
 
+        # get space dimensionality
         if isinstance(self.mg, MotionGroup) and isinstance(self.mg.drive, Drive):
             naxes = self.mg.drive.naxes
         elif "drive" in self.mg_config and "axes" in self.mg_config["drive"]:
@@ -2030,6 +2079,7 @@ class MGWidget(QWidget):
             index = self.mb_dropdown.findText(mb_name_stored)
 
             if index != -1:
+                self._mb_combo_last_index = index
                 self.mb_dropdown.setCurrentIndex(index)
                 self.mb_dropdown.blockSignals(False)
                 return
@@ -2047,6 +2097,7 @@ class MGWidget(QWidget):
             not isinstance(self.mg, MotionGroup)
             or not isinstance(self.mg.mb, MotionBuilder)
         ):
+            self._mb_combo_last_index = 0
             self.mb_dropdown.setCurrentIndex(0)
             return
         else:
@@ -2062,19 +2113,26 @@ class MGWidget(QWidget):
                     # this should not happen
                     break
 
+                self._mb_combo_last_index = index
                 self.mb_dropdown.setCurrentIndex(index)
                 return
 
         index = self.mb_dropdown.findText("Custom Motion Builder")
+        self._mb_combo_last_index = index
         self.mb_dropdown.setCurrentIndex(index)
 
     def _populate_transform_dropdown(self):
 
+        tr_name_stored = None
+        tr_config_stored = None
         if self.transform_dropdown.count() != 0:
             # we are repopulating and need to reset dropdown to current position
             tr_name_stored = self.transform_dropdown.currentText()
-        else:
-            tr_name_stored = None
+            tr_config_stored = None
+            for _name, _config in self.transform_defaults:
+                if _name == tr_name_stored:
+                    tr_config_stored = _config
+                    break
 
         # Block signals when repopulating the dropdown
         self.transform_dropdown.blockSignals(True)
@@ -2097,9 +2155,7 @@ class MGWidget(QWidget):
                 # transform already in dropdown
                 continue
 
-            if tr_name == "Custom Transform":
-                pass
-            elif (
+            if (
                 "type" not in tr_config
                 or tr_config["type"] not in allowed_transforms
             ):
@@ -2108,9 +2164,42 @@ class MGWidget(QWidget):
             self.transform_dropdown.addItem(tr_name)
 
             # add icon for base/template transforms
-            if tr_name != "Custom Transform" and tr_name == tr_config["type"]:
+            if tr_name == tr_config["type"]:
                 count = self.transform_dropdown.count()
                 self.transform_dropdown.setItemIcon(count-1, _template_icon)
+
+        if (
+            isinstance(self.mg, MotionGroup)
+            and isinstance(self.mg.transform, BaseTransform)
+        ):
+            _type = self.mg.transform.transform_type
+            _config = _deepcopy_dict(self.mg.transform.config)
+            if (
+                tr_config_stored is None
+                or tr_config_stored["type"] != _type
+                or not dict_equal(tr_config_stored, _config)
+            ):
+                tr_name_stored = _type
+
+            for ii, _item in enumerate(self.transform_defaults):
+                tr_name = _item[0]
+                tr_default_config = _item[1]
+
+                if tr_name_stored != tr_default_config["type"]:
+                    continue
+
+                index = self.transform_dropdown.findText(tr_name)
+                if index == -1:
+                    # this should not happen
+                    break
+
+                self._transform_defaults[ii] = (
+                    tr_name,
+                    {**tr_default_config, **_config},
+                )
+                self.transform_dropdown.setCurrentIndex(index)
+                self.transform_dropdown.blockSignals(False)
+                return
 
         if tr_name_stored is not None:
             index = self.transform_dropdown.findText(tr_name_stored)
@@ -2123,30 +2212,7 @@ class MGWidget(QWidget):
         self.transform_dropdown.blockSignals(False)
 
         # set default transform
-        if (
-            not isinstance(self.mg, MotionGroup)
-            or not isinstance(self.mg.transform, BaseTransform)
-        ):
-            self.transform_dropdown.setCurrentIndex(0)
-            return
-
-        _type = self.mg.transform.transform_type
-        _config = _deepcopy_dict(self.mg.transform.config)
-        for tr_name, tr_default_config in self.transform_defaults:
-            if tr_name == "Custom Transform" or _type != tr_default_config["type"]:
-                continue
-
-            if dict_equal(_deepcopy_dict(_config), tr_default_config):
-                index = self.transform_dropdown.findText(tr_name)
-                if index == -1:
-                    # this should not happen
-                    break
-
-                self.transform_dropdown.setCurrentIndex(index)
-                return
-
-        index = self.transform_dropdown.findText("Custom Transform")
-        self.transform_dropdown.setCurrentIndex(index)
+        self.transform_dropdown.setCurrentIndex(0)
 
     def _popup_drive_configuration(self):
         self._overlay_setup(
@@ -2281,7 +2347,6 @@ class MGWidget(QWidget):
         self.logger.info(f"Replacing the motion group's transform...\n{config}")
         if not bool(config):
             # config is empty
-            self.mg.terminate(delay_loop_stop=True)
             self.drive_control_widget.setEnabled(False)
             self.transform_btn.set_invalid()
 
@@ -2291,7 +2356,7 @@ class MGWidget(QWidget):
 
     @Slot(object)
     def _change_motion_builder(self, config: Dict[str, Any]):
-        self.logger.info("Replacing the motion group's motion builder.")
+        self.logger.info(f"Replacing the motion group's motion builder.\n{config}")
         self.mg.replace_motion_builder(_deepcopy_dict(config))
         self.configChanged.emit()
 
@@ -2313,9 +2378,11 @@ class MGWidget(QWidget):
         self.drive_control_widget.link_motion_group(self.mg)
 
     def _update_drive_dropdown(self):
-        custom_drive_index = self.drive_dropdown.findText("Custom Drive")
-        if custom_drive_index == -1:
+        if self._custom_drive_index == -1:
+            # this should never happen if self._custom_drive_index was
+            # defined properly
             raise ValueError("Custom Drive not found")
+        custom_drive_index = self._custom_drive_index
 
         if "drive" not in self.mg_config:
             self.drive_dropdown.setCurrentIndex(custom_drive_index)
@@ -2334,13 +2401,37 @@ class MGWidget(QWidget):
             self.drive_dropdown.setCurrentIndex(custom_drive_index)
             return
 
-        drive_config_default = self.drive_defaults[index][1]
-        if dict_equal(drive_config, drive_config_default):
-            self.drive_dropdown.setCurrentIndex(index)
-        else:
-            self.drive_dropdown.setCurrentIndex(custom_drive_index)
+        self.drive_dropdown.setCurrentIndex(index)
 
     def _update_mb_dropdown(self):
+        self.logger.info("Updating MB dropdown")
+        if isinstance(self.mg, MotionGroup) and isinstance(self.mg.mb, MotionBuilder):
+            mb_config = _deepcopy_dict(self.mg.mb.config)
+            mb_dropdown_index = self.mb_dropdown.currentIndex()
+            mb_dropdown_name = self.mb_defaults[mb_dropdown_index][0]
+            mb_dropdown_config = self.mb_defaults[mb_dropdown_index][1]
+
+            if mb_dropdown_name == "Custom Motion Builder":
+                # update the custom motion builder with the current config
+                self.mb_defaults[mb_dropdown_index] = (mb_dropdown_name, mb_config)
+            elif dict_equal(mb_config, mb_dropdown_config):
+                # the config for the pre-defined motion builder matches the
+                # deployed config
+                pass
+            else:
+                # the config for the pre-defined motion builder does NOT match
+                # the deployed config...switch to custom motion builder
+                self.mb_dropdown.blockSignals(True)
+
+                self.mb_defaults[self._custom_mb_index] = (
+                    "Custom Motion Builder", mb_config
+                )
+
+                self._mb_combo_last_index = self._custom_mb_index
+                self.mb_dropdown.setCurrentIndex(self._custom_mb_index)
+
+                self.mb_dropdown.blockSignals(False)
+
         self._populate_mb_dropdown()
 
     def _update_transform_dropdown(self):
@@ -2391,20 +2482,53 @@ class MGWidget(QWidget):
         self.logger.info("Spawning Motion Group")
 
         if isinstance(self.mg, MotionGroup):
+            self.logger.info("Terminating Motion Group for re-spawn.")
             self.mg.terminate(delay_loop_stop=True)
             # self._set_mg(None)
             self._mg = None
 
+        mg = None
         try:
             mg = MotionGroup(
                 config=self.mg_config,
-                logger=logging.getLogger(f"{self.logger.name}.MGW"),
+                logger=logging.getLogger(f"{self.logger.name}.MG"),
                 loop=self.mg_loop,
                 auto_run=True,
             )
-        except (ConnectionError, TimeoutError, ValueError, TypeError):
-            self.logger.warning("Not able to instantiate MotionGroup.")
+        except (ConnectionError, TimeoutError, ValueError, TypeError) as err:
+            self.logger.warning(
+                "Not able to instantiate MotionGroup.",
+                exc_info=err,
+            )
+            try:
+                mg.terminate(delay_loop_stop=True)
+            except AttributeError:
+                pass
+
             mg = None
+
+        # modify drive_dropdown
+        drive_name = (
+            "Custom Drive"
+            if not (isinstance(mg, MotionGroup) and isinstance(mg.drive, Drive))
+            else mg.drive.config["name"]
+        )
+        drive_entry = (
+            {} if drive_name == "Custom Drive"
+            else _deepcopy_dict(mg.drive.config)
+        )
+        dd_index = self.drive_dropdown.findText(drive_name)
+        if dd_index == -1:
+            # reset/define custom drive entry
+            for _default in self.drive_defaults:
+                self._drive_defaults[self._custom_drive_index] = (
+                    "Custom Drive", drive_entry
+                )
+            self.drive_dropdown.blockSignals(True)
+            self._populate_drive_dropdown()
+            self.drive_dropdown.blockSignals(False)
+            # Note: self._set_mg() should trigger self._update_drive_dropdown()
+            #       so we are not explicitly setting the dropdown index here
 
         self._set_mg(mg)
 
@@ -2544,71 +2668,41 @@ class MGWidget(QWidget):
 
     @Slot(int)
     def _drive_dropdown_new_selection(self, index):
-        self.logger.warning(f"New selections in drive dropdown {index}")
-        if self.drive_dropdown.currentText() == "Custom Drive":
-            # custom drive can be anything, change nothing
+        if index == -1:
+            self.logger.warning(f"Selected index {index} in drive dropdown is invalid.")
             return
+
+        self.logger.warning(f"New selections in drive dropdown {index}")
 
         drive_config = _deepcopy_dict(self.drive_defaults[index][1])
         self._change_drive(drive_config)
 
     @Slot(int)
     def _mb_dropdown_new_selection(self, index):
-        mb_name = self.mb_dropdown.currentText()
-        self.logger.warning(
-            f"New selections in motion builder dropdown {index} '{mb_name}'"
-        )
 
         if index == -1:
+            self.logger.warning(f"Selected index {index} in mb dropdown is invalid.")
             return
-        elif mb_name == "Custom Motion Builder":
-            # custom transform can be anything, change nothing
+        elif index == self._mb_combo_last_index:
+            # index did not change
             return
 
-        mb_default_config = None  # type: Union[Dict[str, Any], None]
-        for _name, _config in self.mb_defaults:
-            if mb_name != _name:
-                continue
+        self._mb_combo_last_index = index
 
-            mb_default_config = _deepcopy_dict(_config)
-            break
-
-        self.logger.info(f"New MB config...\n{mb_default_config}")
-        self.logger.info(
-            f"mb_default_config is None = {mb_default_config is None}\n"
-            f"'motion_builder' in self.mg_config = {'motion_builder' in self.mg_config}\n"
+        mb_dropdown_name = self.mb_dropdown.currentText()
+        mb_dropdown_config = _deepcopy_dict(self.mb_defaults[index][1])
+        self.logger.warning(
+            f"New selections in motion builder dropdown {index} '{mb_dropdown_name}'"
         )
-        if mb_default_config is None:
-            # could not find the default config
-            self._update_mb_dropdown()
-            return
-        elif (
-            "motion_builder" in self.mg_config
-            and dict_equal(
-                mb_default_config,
-                _deepcopy_dict(self.mg_config["motion_builder"]),
-            )
-        ):
-            self.logger.info(
-                "Selected transform is already in use\n"
-                f"selected = {mb_default_config}\n"
-                f"old = {_deepcopy_dict(self.mg_config['motion_builder'])}"
-            )
-            # selected transform is already deployed
-            return
 
-        self.logger.info("Changing MB config...")
-        self._change_motion_builder(mb_default_config)
+        self._change_motion_builder(mb_dropdown_config)
 
     @Slot(int)
     def _transform_dropdown_new_selection(self, index):
         tr_name = self.transform_dropdown.currentText()
-        self.logger.warning(f"New selections in transform dropdown {index} '{tr_name}'")
+        self.logger.info(f"New selections in transform dropdown {index} '{tr_name}'")
 
         if index == -1:
-            return
-        elif tr_name == "Custom Transform":
-            # custom transform can be anything, change nothing
             return
 
         tr_default_config = None  # type: Union[Dict[str, Any], None]
