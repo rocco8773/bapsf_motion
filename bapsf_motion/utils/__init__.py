@@ -107,19 +107,24 @@ def _deepcopy_dict(item):
     return _copy
 
 
-def dict_equal(d1, d2):
+def dict_equal(d1, d2) -> bool:
+    if not isinstance(d1, (dict, UserDict)) or not isinstance(d2, (dict, UserDict)):
+        return False
+
     if set(d1) != set(d2):
         return False
 
     for key, val in d1.items():
-        if key not in d2:
-            return False
-
         if isinstance(val, (dict, UserDict)):
             equality = dict_equal(val, d2[key])
-            return equality
 
-        return val == d2[key]
+            if not equality:
+                return False
+
+        if val != d2[key]:
+            return False
+
+    return True
 
 
 def loop_safe_stop(loop: asyncio.AbstractEventLoop, max_wait: Optional[float] = 6.0):
