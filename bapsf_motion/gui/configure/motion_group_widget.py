@@ -14,7 +14,7 @@ import pygame  # noqa
 
 from abc import abstractmethod
 from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QSize, QThreadPool, QObject
-from PySide6.QtGui import QDoubleValidator, QFont, QIcon
+from PySide6.QtGui import QDoubleValidator, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,6 +41,7 @@ from bapsf_motion.gui.configure.bases import _ConfigOverlay, _OverlayWidget
 from bapsf_motion.gui.configure.drive_overlay import DriveConfigOverlay
 from bapsf_motion.gui.configure.helpers import gui_logger
 from bapsf_motion.gui.configure.motion_builder_overlay import MotionBuilderConfigOverlay
+from bapsf_motion.gui.configure.motion_space_display import MotionSpaceDisplay
 from bapsf_motion.gui.configure.transform_overlay import TransformConfigOverlay
 from bapsf_motion.gui.widgets import (
     DiscardButton,
@@ -288,6 +289,7 @@ class AxisControlWidget(QWidget):
     movementStarted = Signal(int)
     movementStopped = Signal(int)
     axisStatusChanged = Signal()
+    targetPositionChanged = Signal(float)
 
     def __init__(
         self,
@@ -392,6 +394,9 @@ class AxisControlWidget(QWidget):
         self.jog_backward_btn.clicked.connect(self.jog_backward)
         self.zero_btn.clicked.connect(self._zero_axis)
         self.jog_delta_label.editingFinished.connect(self._validate_jog_value)
+        self.target_position_label.editingFinished.connect(
+            self._validate_target_position_value
+        )
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -571,6 +576,14 @@ class AxisControlWidget(QWidget):
         val = abs(val)
         self.jog_delta_label.setText(f"{val:.2f}")
 
+    def _validate_target_position_value(self):
+        try:
+            val = self.target_position
+        except ValueError:
+            val = None
+
+        self.targetPositionChanged.emit(val)
+
     def _zero_axis(self):
         self.logger.info(f"Setting zero of axis {self.axis_index}")
         self.mg.set_zero(axis=self.axis_index)
@@ -655,6 +668,7 @@ class DriveBaseController(QWidget):
     movementStopped = Signal()
     moveTo = Signal(list)
     zeroDrive = Signal()
+    targetPositionChanged = Signal(list)
 
     def __init__(self, axis_display_mode="interactive", parent=None):
         # axis_display_mode == "interactive" or "readonly"
@@ -696,6 +710,9 @@ class DriveBaseController(QWidget):
         self.movementStarted.connect(self.disable_motion_buttons)
         self.movementStopped.connect(self.enable_motion_buttons)
 
+        for acw in self._axis_control_widgets:
+            acw.targetPositionChanged.connect(self._target_position_changed)
+
     @abstractmethod
     def _define_layout(self) -> QLayout:
         ...
@@ -711,6 +728,43 @@ class DriveBaseController(QWidget):
     @property
     def mspace_drive_polarity(self):
         return self._mspace_drive_polarity
+
+    @property
+    def position(self) -> List[float]:
+        position = []
+        for acw in self._axis_control_widgets:
+            if acw.isHidden():
+                continue
+
+            position.append(acw.position.value)
+
+        return position
+
+    @property
+    def target_position(self) -> Union[List[float], None]:
+        target_position = []
+        for acw in self._axis_control_widgets:
+            if acw.isHidden():
+                continue
+
+            target_position.append(acw.target_position)
+
+        if not bool(target_position):
+            # no values in target position
+            return None
+
+        if any(pos is None for pos in target_position):
+            # some target positions are not valid
+            return None
+
+        return target_position
+
+    def _target_position_changed(self, position):
+        self.logger.info(f"DBC target position changed {self.target_position}")
+        tpos = self.target_position
+        if tpos is None:
+            tpos = []
+        self.targetPositionChanged.emit(tpos)
 
     def link_motion_group(self, mg: MotionGroup):
         if not isinstance(mg, MotionGroup):
@@ -934,6 +988,22 @@ class DriveDesktopController(DriveBaseController):
             target_pos = []
 
         self.moveTo.emit(target_pos)
+
+    def set_target_position(self, target_position: List[float]):
+        npos = len(target_position)
+        naxes = self.mg.drive.naxes
+
+        if npos != naxes:
+            self.logger.warning(
+                f"Received target position {target_position} does NOT "
+                f"have the same dimensionality as the drive "
+                f"({naxes})."
+            )
+            return
+
+        for ii, pos in enumerate(target_position):
+            acw = self._axis_control_widgets[ii]
+            acw.target_position_label.setText(f"{pos}")
 
     def disable_motion_buttons(self):
         self.move_to_btn.setEnabled(False)
@@ -1248,6 +1318,8 @@ class DriveGameController(DriveBaseController):
 class DriveControlWidget(QWidget):
     movementStarted = Signal()
     movementStopped = Signal()
+    driveStatusChanged = Signal()
+    targetPositionChanged = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1312,6 +1384,12 @@ class DriveControlWidget(QWidget):
 
         self.desktop_controller_widget.zeroDrive.connect(self._zero_drive)
         self.desktop_controller_widget.moveTo.connect(self._move_to)
+        self.desktop_controller_widget.targetPositionChanged.connect(
+            self.targetPositionChanged.emit
+        )
+        self.desktop_controller_widget.driveStatusChanged.connect(
+            self.driveStatusChanged.emit
+        )
 
         self.controller_combo_box.currentTextChanged.connect(self._switch_stack)
 
@@ -1361,6 +1439,14 @@ class DriveControlWidget(QWidget):
     @property
     def mg(self) -> Union[MotionGroup, None]:
         return self._mg
+
+    @property
+    def position(self) -> List[float]:
+        return self.desktop_controller_widget.position
+
+    @property
+    def target_position(self):
+        return self.desktop_controller_widget.target_position
 
     def _stop_move(self):
         self.mg.stop()
@@ -1471,6 +1557,20 @@ class DriveControlWidget(QWidget):
 
         if proceed:
             self.mg.move_to(target_pos)
+
+    def set_target_position(self, target_position: List[float]):
+        npos = len(target_position)
+        naxes = self.mg.drive.naxes
+
+        if npos != naxes:
+            self.logger.warning(
+                f"Received target position {target_position} does NOT "
+                f"have the same dimensionality as the drive "
+                f"({naxes})."
+            )
+            return
+
+        self.desktop_controller_widget.set_target_position(target_position)
 
     def closeEvent(self, event):
         self.logger.info(f"Closing {self.__class__.__name__}")
@@ -1657,6 +1757,8 @@ class MGWidget(QWidget):
         self.drive_control_widget = DriveControlWidget(parent=self)
         self.drive_control_widget.setEnabled(False)
 
+        self.mpl_canvas = MotionSpaceDisplay(parent=self)
+
         self.setLayout(self._define_layout())
         self._connect_signals()
 
@@ -1734,11 +1836,23 @@ class MGWidget(QWidget):
             self._transform_dropdown_new_selection
         )
 
+        self.mpl_canvas.targetPositionSelected.connect(self._update_target_position)
+
         self.drive_control_widget.movementStarted.connect(self.disable_config_controls)
         self.drive_control_widget.movementStopped.connect(self.enable_config_controls)
+        self.drive_control_widget.targetPositionChanged.connect(
+            self.mpl_canvas.update_target_position_plot
+        )
+        self.drive_control_widget.driveStatusChanged.connect(
+            self._update_position_in_plot
+        )
 
         self.done_btn.clicked.connect(self.return_and_close)
         self.discard_btn.clicked.connect(self.close)
+
+    def _update_position_in_plot(self):
+        position = self.drive_control_widget.position
+        self.mpl_canvas.update_position_plot(position)
 
     def _define_layout(self):
 
@@ -1767,9 +1881,7 @@ class MGWidget(QWidget):
         layout.addSpacing(12)
         layout.addLayout(self._define_central_builder_layout())
         layout.addSpacing(12)
-        # probe position graph widgets should go HERE
-        # - i.e. self._define_mspace_display_layout()
-        layout.addStretch(1)
+        layout.addWidget(self.mpl_canvas)
 
         return layout
 
@@ -2007,6 +2119,7 @@ class MGWidget(QWidget):
         self._update_drive_dropdown()
         self._update_mb_dropdown()
         self._update_transform_dropdown()
+        self._update_mpl_canvas_mb()
 
         # updating the drive control widget should always be the last
         # step
@@ -2377,6 +2490,9 @@ class MGWidget(QWidget):
 
         self.drive_control_widget.link_motion_group(self.mg)
 
+        target_position = self.drive_control_widget.target_position
+        self.drive_control_widget.targetPositionChanged.emit(target_position)
+
     def _update_drive_dropdown(self):
         if self._custom_drive_index == -1:
             # this should never happen if self._custom_drive_index was
@@ -2448,6 +2564,28 @@ class MGWidget(QWidget):
             return
 
         self._refresh_drive_control()
+
+    def _update_mpl_canvas_mb(self):
+        if (
+            not isinstance(self.mg, MotionGroup)
+            or not isinstance(self.mg.mb, MotionBuilder)
+        ):
+            self.mpl_canvas.unlink_motion_builder()
+            return
+
+        if not isinstance(self.mpl_canvas.mb, MotionBuilder):
+            self.mpl_canvas.link_motion_builder(self.mg.mb)
+            return
+
+        if dict_equal(self.mg.mb.config, self.mpl_canvas.mb.config):
+            # canvas already had current motion builder
+            return
+
+        self.mpl_canvas.link_motion_builder(self.mg.mb)
+
+    @Slot(list)
+    def _update_target_position(self, target_position: List[float]):
+        self.drive_control_widget.set_target_position(target_position)
 
     def _rename_motion_group(self):
         self.logger.info("Renaming motion group")
