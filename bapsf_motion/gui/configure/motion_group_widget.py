@@ -50,6 +50,7 @@ from bapsf_motion.gui.widgets import (
     HLinePlain,
     IconButton,
     LED,
+    QTAIconLabel,
     StyleButton,
     StopButton,
     ValidButton,
@@ -518,8 +519,12 @@ class AxisControlWidget(QWidget):
         return val * unit
 
     @property
-    def target_position(self):
-        return float(self.target_position_label.text())
+    def target_position(self) -> Union[float, None]:
+        try:
+            pos = float(self.target_position_label.text())
+        except ValueError:
+            pos = None
+        return pos
 
     @property
     def interactive_display_mode(self):
@@ -560,6 +565,9 @@ class AxisControlWidget(QWidget):
         if self._mg.terminated:
             return
 
+        if not self.isEnabled():
+            return
+
         pos = self.position
         self.position_label.setText(f"{pos.value:.2f} {pos.unit}")
 
@@ -577,12 +585,7 @@ class AxisControlWidget(QWidget):
         self.jog_delta_label.setText(f"{val:.2f}")
 
     def _validate_target_position_value(self):
-        try:
-            val = self.target_position
-        except ValueError:
-            val = None
-
-        self.targetPositionChanged.emit(val)
+        self.targetPositionChanged.emit(self.target_position)
 
     def _zero_axis(self):
         self.logger.info(f"Setting zero of axis {self.axis_index}")
@@ -987,6 +990,13 @@ class DriveDesktopController(DriveBaseController):
             )
             target_pos = []
 
+        if any(p is None for p in target_pos):
+            self.logger.warning(
+                f"Requested target position ({target_pos}) is not valid,"
+                f" NOT performing move to."
+            )
+            return
+
         self.moveTo.emit(target_pos)
 
     def set_target_position(self, target_position: List[float]):
@@ -1390,6 +1400,12 @@ class DriveControlWidget(QWidget):
         self.desktop_controller_widget.driveStatusChanged.connect(
             self.driveStatusChanged.emit
         )
+        self.desktop_controller_widget.movementStarted.connect(
+            self._drive_movement_started
+        )
+        self.desktop_controller_widget.movementStopped.connect(
+            self._drive_movement_finished
+        )
 
         self.controller_combo_box.currentTextChanged.connect(self._switch_stack)
 
@@ -1530,19 +1546,13 @@ class DriveControlWidget(QWidget):
         if self.game_controller_widget is not None:
             self.game_controller_widget.update_all_axis_displays()
 
-    @Slot(int)
-    def _drive_movement_started(self, axis_index):
+    def _drive_movement_started(self):
+        self.controller_combo_box.setEnabled(False)
         self.movementStarted.emit()
 
-    @Slot(int)
-    def _drive_movement_finished(self, axis_index):
-        if not isinstance(self.mg, MotionGroup) or not isinstance(self.mg.drive, Drive):
-            return
-
-        is_moving = [ax.is_moving for ax in self.mg.drive.axes]
-        is_moving[axis_index] = False
-        if not any(is_moving):
-            self.movementStopped.emit()
+    def _drive_movement_finished(self):
+        self.controller_combo_box.setEnabled(True)
+        self.movementStopped.emit()
 
     @Slot(list)
     def _move_to(self, target_pos):
@@ -1679,11 +1689,9 @@ class MGWidget(QWidget):
         _btn = DiscardButton(parent=self)
         self.discard_btn = _btn
 
-        _icon = QLabel(parent=self)
-        _icon.setPixmap(qta.icon("mdi.steering").pixmap(24, 24))
-        _icon.setMaximumWidth(32)
-        _icon.setMaximumHeight(32)
-        _icon.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        _icon = QTAIconLabel("mdi.steering", parent=self)
+        _icon.setFixedSize(32)
+        _icon.setIconSize(24)
         self.drive_label = _icon
 
         _w = QComboBox(parent=self)
@@ -1700,11 +1708,10 @@ class MGWidget(QWidget):
         _btn = GearValidButton(parent=self)
         self.drive_btn = _btn
 
-        _icon = QLabel(parent=self)
-        _icon.setPixmap(qta.icon("mdi.motion").pixmap(24, 24))
-        _icon.setMaximumWidth(32)
-        _icon.setMaximumHeight(32)
         _icon.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        _icon = QTAIconLabel("mdi.motion", parent=self)
+        _icon.setFixedSize(32)
+        _icon.setIconSize(24)
         self.mb_label = _icon
 
         _w = QComboBox(parent=self)
@@ -1722,11 +1729,9 @@ class MGWidget(QWidget):
         _btn.setEnabled(False)
         self.mb_btn = _btn
 
-        _icon = QLabel(parent=self)
-        _icon.setPixmap(qta.icon("fa5s.exchange-alt").pixmap(24, 24))
-        _icon.setMaximumWidth(32)
-        _icon.setMaximumHeight(32)
-        _icon.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        _icon = QTAIconLabel("fa5s.exchange-alt", parent=self)
+        _icon.setFixedSize(32)
+        _icon.setIconSize(24)
         self.transform_label = _icon
 
         _w = QComboBox(parent=self)
@@ -1758,6 +1763,9 @@ class MGWidget(QWidget):
         self.drive_control_widget.setEnabled(False)
 
         self.mpl_canvas = MotionSpaceDisplay(parent=self)
+        _policy = self.mpl_canvas.sizePolicy()
+        _policy.setRetainSizeWhenHidden(True)
+        self.mpl_canvas.setSizePolicy(_policy)
 
         self.setLayout(self._define_layout())
         self._connect_signals()
@@ -1851,7 +1859,10 @@ class MGWidget(QWidget):
         self.discard_btn.clicked.connect(self.close)
 
     def _update_position_in_plot(self):
-        position = self.drive_control_widget.position
+        if self.drive_control_widget.isEnabled():
+            position = self.drive_control_widget.position
+        else:
+            position = None
         self.mpl_canvas.update_position_plot(position)
 
     def _define_layout(self):
@@ -1877,10 +1888,11 @@ class MGWidget(QWidget):
 
     def _define_mg_builder_layout(self):
         layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(self._define_toml_layout())
-        layout.addSpacing(12)
-        layout.addLayout(self._define_central_builder_layout())
-        layout.addSpacing(12)
+        layout.addSpacing(8)
+        layout.addWidget(self._define_central_builder_widget())
+        layout.addSpacing(8)
         layout.addWidget(self.mpl_canvas)
 
         return layout
@@ -1900,12 +1912,9 @@ class MGWidget(QWidget):
 
         return layout
 
-    def _define_central_builder_layout(self):
+    def _define_central_builder_widget(self):
 
-        _label = QLabel("Name:  ", parent=self)
-        _label.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt. AlignmentFlag.AlignLeft
-        )
+        _label = QLabel("Name:", parent=self)
         _label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         font = _label.font()
         font.setPointSize(16)
@@ -1913,7 +1922,9 @@ class MGWidget(QWidget):
         name_label = _label
 
         title_sub_layout = QHBoxLayout()
+        title_sub_layout.setContentsMargins(12, 0, 12, 0)
         title_sub_layout.addWidget(name_label)
+        title_sub_layout.addSpacing(4)
         title_sub_layout.addWidget(self.mg_name_widget)
 
         drive_sub_layout = QHBoxLayout()
@@ -1931,19 +1942,98 @@ class MGWidget(QWidget):
         transform_sub_layout.addWidget(self.transform_dropdown)
         transform_sub_layout.addWidget(self.transform_btn)
 
+        _legend_txt = QLabel("LEGEND", parent=self)
+        font = _legend_txt.font()
+        font.setBold(True)
+        font.setPointSize(10)
+        _legend_txt.setFont(font)
+
+        valid_gear_legend_layout = QHBoxLayout()
+        valid_gear_legend_layout.setContentsMargins(0, 0, 0, 0)
+        _btn = GearValidButton(parent=self)
+        _btn.set_valid()
+        _btn.setFixedSize(24)
+        _btn.setIconSize(20)
+        valid_gear_legend_layout.addWidget(_btn)
+        valid_gear_legend_layout.addSpacing(4)
+        valid_gear_legend_layout.addWidget(
+            QLabel("Configuration valid. Click to edit.", parent=self)
+        )
+
+        invalid_gear_legend_layout = QHBoxLayout()
+        invalid_gear_legend_layout.setContentsMargins(0, 0, 0, 0)
+        _btn = GearValidButton(parent=self)
+        _btn.set_invalid()
+        _btn.setFixedSize(24)
+        _btn.setIconSize(20)
+        invalid_gear_legend_layout.addWidget(_btn)
+        invalid_gear_legend_layout.addSpacing(4)
+        invalid_gear_legend_layout.addWidget(
+            QLabel(
+                "Configuration invalid. Click to edit.\nHover for tooltip.",
+                parent=self,
+            ),
+        )
+
+        drive_legend_layout = QHBoxLayout()
+        drive_legend_layout.setContentsMargins(2, 0, 0, 0)
+        _icon = QTAIconLabel("mdi.steering", parent=self)
+        _icon.setFixedSize(20)
+        _icon.setIconSize(20)
+        drive_legend_layout.addWidget(_icon)
+        drive_legend_layout.addSpacing(6)
+        drive_legend_layout.addWidget(
+            QLabel("Drive configuration.", parent=self)
+        )
+
+        mb_legend_layout = QHBoxLayout()
+        mb_legend_layout.setContentsMargins(2, 0, 0, 0)
+        _icon = QTAIconLabel("mdi.motion", parent=self)
+        _icon.setFixedSize(20)
+        _icon.setIconSize(20)
+        mb_legend_layout.addWidget(_icon)
+        mb_legend_layout.addSpacing(6)
+        mb_legend_layout.addWidget(
+            QLabel("Motion Builder / Space configuration.", parent=self)
+        )
+
+        tr_legend_layout = QHBoxLayout()
+        tr_legend_layout.setContentsMargins(2, 0, 0, 0)
+        _icon = QTAIconLabel("fa5s.exchange-alt", parent=self)
+        _icon.setFixedSize(20)
+        _icon.setIconSize(20)
+        tr_legend_layout.addWidget(_icon)
+        tr_legend_layout.addSpacing(6)
+        tr_legend_layout.addWidget(
+            QLabel("Transformer configuration.", parent=self)
+        )
+
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addSpacing(18)
         layout.addLayout(title_sub_layout)
-        layout.addSpacing(18)
+        layout.addSpacing(12)
         layout.addLayout(drive_sub_layout)
         layout.addLayout(mb_sub_layout)
         layout.addLayout(transform_sub_layout)
+        layout.addSpacing(8)
+        layout.addWidget(HLinePlain(parent=self))
+        layout.addWidget(
+            _legend_txt,
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        layout.addLayout(valid_gear_legend_layout)
+        layout.addLayout(invalid_gear_legend_layout)
+        layout.addSpacing(4)
+        layout.addLayout(drive_legend_layout)
+        layout.addLayout(mb_legend_layout)
+        layout.addLayout(tr_legend_layout)
         layout.addStretch()
 
-        return layout
-
-    def _define_mspace_display_layout(self):
-        ...
+        _widget = QWidget(parent=self)
+        _widget.setLayout(layout)
+        _widget.setFixedWidth(335)
+        return _widget
 
     def _build_drive_defaults(self) -> List[Tuple[str, Dict[str, Any]]]:
         # Returned _drive_defaults is a List of Tuple pairs
@@ -2678,6 +2768,14 @@ class MGWidget(QWidget):
         vmg_name = self._validate_motion_group_name()
         vdrive = self._validate_drive()
 
+        # Enable / Disable Motion Builder Config
+        self.mb_dropdown.setEnabled(vdrive)
+        self.mb_btn.setEnabled(vdrive)
+
+        # Enable / Disable Transformer Config
+        self.transform_dropdown.setEnabled(vdrive)
+        self.transform_btn.setEnabled(vdrive)
+
         if not isinstance(self.mg, MotionGroup):
             mb = None
             transform = None
@@ -2689,23 +2787,25 @@ class MGWidget(QWidget):
             self.mb_btn.set_invalid()
             self.mb_btn.setToolTip("Motion space needs to be defined.")
             self.done_btn.setEnabled(False)
+        elif "layer" not in mb.config:
+            self.mb_btn.set_invalid()
+            self.mb_btn.setToolTip(
+                "A point layer needs to be defined to generate a motion list."
+            )
         else:
-            if "layer" not in mb.config:
-                self.mb_btn.set_invalid()
-                self.mb_btn.setToolTip(
-                    "A point layer needs to be defined to generate a motion list."
-                )
-            else:
-                self.mb_btn.set_valid()
-                self.mb_btn.setToolTip("")
+            self.mb_btn.set_valid()
+            self.mb_btn.setToolTip("")
 
         if not isinstance(transform, BaseTransform):
             self.transform_btn.set_invalid()
-            self.done_btn.setEnabled(False)
+            self.transform_btn.setToolTip("Transformer needs to be fully configured.")
 
+            self.done_btn.setEnabled(False)
             self.drive_control_widget.setEnabled(False)
         else:
             self.transform_btn.set_valid()
+            self.transform_btn.setToolTip("")
+
             self.drive_control_widget.setEnabled(True)
 
         if (
@@ -2758,26 +2858,14 @@ class MGWidget(QWidget):
         if not isinstance(self.mg, MotionGroup) or not isinstance(self.mg.drive, Drive):
             self.done_btn.setEnabled(False)
 
-            self.mb_dropdown.setEnabled(False)
-            self.mb_btn.setEnabled(False)
-            self.mb_btn.set_invalid()
-            self.mb_btn.setToolTip("Motion space needs to be defined.")
-
-            self.transform_dropdown.setEnabled(False)
-            self.transform_btn.setEnabled(False)
-            self.transform_btn.set_invalid()
-
             self.drive_btn.set_invalid()
             self.drive_control_widget.setEnabled(False)
 
             self.drive_btn.setToolTip("Drive is not fully configured.")
             return False
 
-        self.mb_dropdown.setEnabled(True)
-        self.mb_btn.setEnabled(True)
-
-        self.transform_dropdown.setEnabled(True)
-        self.transform_btn.setEnabled(True)
+        self.drive_dropdown.setEnabled(True)
+        self.drive_btn.setEnabled(True)
 
         if self.mg.drive.terminated:
             self.drive_btn.set_invalid()
@@ -2884,14 +2972,7 @@ class MGWidget(QWidget):
         self.transform_btn.setEnabled(False)
 
     def enable_config_controls(self):
-        self.drive_dropdown.setEnabled(True)
-        self.drive_btn.setEnabled(True)
-
-        self.mb_dropdown.setEnabled(True)
-        self.mb_btn.setEnabled(True)
-
-        self.transform_dropdown.setEnabled(True)
-        self.transform_btn.setEnabled(True)
+        self._validate_motion_group()
 
     def return_and_close(self):
         config = _deepcopy_dict(self.mg.config)
