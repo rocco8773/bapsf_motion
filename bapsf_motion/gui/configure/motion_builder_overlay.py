@@ -10,6 +10,8 @@ import math
 import numpy as np
 import matplotlib as mpl
 import re
+import typing
+import xarray as xr
 
 from PySide6.QtCore import Qt, Slot, QSize
 from PySide6.QtGui import QDoubleValidator
@@ -749,8 +751,9 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         )
         _icons = [None] * len(_available)
         _exclude_governors = (
-                bool(self.mb.exclusions)
-                and isinstance(self.mb.exclusions[0], GovernExclusion)
+            bool(self.mb.exclusions)
+            and isinstance(self.mb.exclusions[0], GovernExclusion)
+            and not isinstance(current_ex, GovernExclusion)
         )
         _govern_icon = qta.icon("mdi.crown")
         for ii, name in enumerate(tuple(_available)):
@@ -861,7 +864,11 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.configChanged.emit()
 
     def _refresh_params_combo_box(
-        self, items, icons=None, current: Optional[str] = None, _type: Optional[str] = None,
+        self,
+        items,
+        icons=None,
+        current: Optional[str] = None,
+        _type: Optional[str] = None,
     ):
         # disable combo box signals during depopulation
         self.params_combo_box.blockSignals(True)
@@ -958,8 +965,14 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             _input = ast.literal_eval(_input_string)
         except (ValueError, SyntaxError) as err:
             params = _registry.get_input_parameters(_type)
-            _type = params[param]["param"].annotation
-            if inspect.isclass(_type) and issubclass(_type, str):
+            anno = params[param]["param"].annotation
+
+            if inspect.isclass(anno) and issubclass(anno, str):
+                _input = _input_string
+            elif (
+                typing.get_origin(anno) is Union
+                and str in typing.get_args(anno)
+            ):
                 _input = _input_string
             elif _input_string == "":
                 _input = None
@@ -1106,13 +1119,30 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
                 return
 
         try:
+            # let's spawn with a lower res space to reduce validation
+            # time
+            size = 11
+            new_coords = {}
+            for coord in self.mb.mask.coords.values():
+                new_coords[coord.name] = np.linspace(
+                    np.min(coord), np.max(coord), num=size
+                )
+            _ds = xr.Dataset(
+                {
+                    "mask": (
+                        tuple(new_coords.keys()),
+                        np.ones([size] * self.mb.mask.ndim, dtype=bool),
+                    )
+                },
+                coords=new_coords,
+            )
+
             _layer = _registry.factory(
-                self.mb._ds,
+                _ds,
                 _type=_type,
                 skip_ds_add=True,
                 **_inputs,
             )
-            # self._transform = transform
             self.change_validation_state(True)
         except (ValueError, TypeError) as err:
             self.logger.exception(
