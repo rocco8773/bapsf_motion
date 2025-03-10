@@ -52,6 +52,7 @@ from bapsf_motion.gui.configure.transform_overlay import TransformConfigOverlay
 from bapsf_motion.gui.widgets import (
     DiscardButton,
     DoneButton,
+    EnableIndicator,
     GearValidButton,
     HLinePlain,
     IconButton,
@@ -354,6 +355,14 @@ class AxisControlWidget(QWidget):
         _btn = ZeroButton("ZERO", parent=self)
         self.zero_btn = _btn
 
+        _btn = EnableIndicator(parent=self)
+        font = self.font()
+        font.setPointSize(8)
+        font.setBold(True)
+        _btn.setFont(font)
+        _btn.setFixedHeight(20)
+        self.enable_btn = _btn
+
         # Define TEXT WIDGETS
         _txt = QLabel("Name", parent=self)
         font = _txt.font()
@@ -404,6 +413,8 @@ class AxisControlWidget(QWidget):
         self.target_position_label.editingFinished.connect(
             self._validate_target_position_value
         )
+        self.enable_btn.clicked.connect(self._set_motor_enabled_state)
+        self.movementStopped.connect(self._disable_motor)
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -425,6 +436,7 @@ class AxisControlWidget(QWidget):
             self.axis_name_label,
             alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignCenter,
         )
+        layout.addLayout(self._define_enable_btn_layout())
         layout.addWidget(
             self.position_label,
             alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignCenter,
@@ -480,6 +492,8 @@ class AxisControlWidget(QWidget):
             alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignCenter,
         )
         layout.addSpacing(4)
+        layout.addLayout(self._define_enable_btn_layout())
+        layout.addSpacing(4)
         layout.addWidget(self.limit_fwd_btn, alignment=Qt.AlignmentFlag.AlignTop)
         layout.addSpacing(8)
         layout.addWidget(
@@ -497,6 +511,15 @@ class AxisControlWidget(QWidget):
         layout.addStretch(1)
 
         return layout
+
+    def _define_enable_btn_layout(self):
+        enabled_layout = QHBoxLayout()
+        enabled_layout.setContentsMargins(0, 0, 0, 0)
+        enabled_layout.addSpacing(16)
+        enabled_layout.addWidget(self.enable_btn)
+        enabled_layout.addSpacing(16)
+
+        return enabled_layout
 
     @property
     def logger(self) -> logging.Logger:
@@ -568,6 +591,9 @@ class AxisControlWidget(QWidget):
 
         self.target_position_label.setText(_txt)
 
+    def _disable_motor(self):
+        self.axis.send_command("disable")
+
     def _move_to(self, target_ax_pos):
         target_pos = self.mg.position.value
         target_pos[self.axis_index] = target_ax_pos
@@ -587,6 +613,11 @@ class AxisControlWidget(QWidget):
         if proceed:
             self.mg.move_to(target_pos)
 
+    def _set_motor_enabled_state(self):
+        current_enabled_state = self.axis.motor.status["enabled"]
+        cmd_string = "disable" if current_enabled_state else "enable"
+        self.axis.send_command(cmd_string)
+
     def _update_display_of_axis_status(self):
         if self._mg.terminated:
             return
@@ -602,6 +633,9 @@ class AxisControlWidget(QWidget):
         limits = self.axis.motor.status["limits"]
         self.limit_fwd_btn.set_valid(state=limits["CW"])
         self.limit_bwd_btn.set_valid(state=limits["CCW"])
+
+        enabled_state = self.axis.motor.status["enabled"]
+        self.enable_btn.setChecked(enabled_state)
 
     def _validate_jog_value(self):
         _txt = self.jog_delta_label.text()
@@ -669,11 +703,13 @@ class AxisControlWidget(QWidget):
         self.zero_btn.setEnabled(True)
         self.jog_forward_btn.setEnabled(True)
         self.jog_backward_btn.setEnabled(True)
+        self.enable_btn.setEnabled(True)
 
     def disable_motion_buttons(self):
         self.zero_btn.setEnabled(False)
         self.jog_forward_btn.setEnabled(False)
         self.jog_backward_btn.setEnabled(False)
+        self.enable_btn.setEnabled(False)
 
     def closeEvent(self, event):
         self.logger.info("Closing AxisControlWidget")
@@ -1016,6 +1052,9 @@ class DriveDesktopController(DriveBaseController):
             _off,
             alignment=Qt.AlignmentFlag.AlignVCenter,
         )
+        _on.setVisible(False)
+        _off.setVisible(False)
+        self.hold_current_btn.setVisible(False)
 
         # Sub-Layout #1
         sub_layout = QVBoxLayout()
@@ -1051,7 +1090,7 @@ class DriveDesktopController(DriveBaseController):
 
         sub_layout2 = QVBoxLayout()
         sub_layout2.setSpacing(8)
-        sub_layout2.addSpacing(32)
+        sub_layout2.addSpacing(58)
         sub_layout2.addWidget(
             _pos_label,
             alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
