@@ -156,11 +156,24 @@ class GridLayer(BaseLayer):
         Validate the input arguments passed during instantiation.
         These inputs are stored in :attr:`inputs`.
         """
+        npoints = self._validate_npoints(self.npoints)
+        self._set_npoints(npoints)
+
         limits = self._validate_limits(self.limits)
         self._set_limits(limits)
 
-        npoints = self._validate_npoints(self.npoints)
-        self._set_npoints(npoints)
+        # default to 1 point if limits are equal
+        mask = limits[..., 0] == limits[..., 1]
+        if np.any(mask):
+            npoints[mask] = 1
+
+        # limits are NOT equal if npoints is 1
+        npoints_mask = npoints == 1
+        if np.any(np.logical_xor(npoints_mask, mask)):
+            raise ValueError(
+                "Keyword `npoints` defines some axes as 1 point, but the "
+                "associated `limits` does NOT have an equal min/max pair."
+            )
 
     def _validate_limits(self, limits):
         """Validate the ``limits`` argument."""
@@ -199,11 +212,6 @@ class GridLayer(BaseLayer):
             raise ValueError(
                 "Needs to be array_like of size 2 or equal to the "
                 f"dimensionality of the motion space {self.mspace_ndims}."
-            )
-        elif np.any(limits[..., 0] == limits[..., 1]):
-            raise ValueError(
-                "Keyword 'limits' is a 1D array of (min, max) pairs, "
-                "some pairs are equal."
             )
 
         # ensure limits go min to max
@@ -422,10 +430,21 @@ class GridCNStepLayer(GridLayer):
         step_size = self._validate_step_size(self.step_size)
         self._set_step_size(step_size)
 
+        # Check for zero step_size
+        npoints_mask = npoints == 1
+        if np.any(step_size[np.logical_not(npoints_mask)] == 0):
+            raise ValueError(
+                "Keyword 'step_size' has axes with 0 size. Each motion "
+                "space axis with more than 1 point needs a physical "
+                "step size greater than 0."
+            )
+
         # calculate limits
-        limits = np.empty((center.size, 2), dtype=np.float64)
-        limits[..., 1] = 0.5 * (npoints - 1) * step_size
-        limits[..., 0] = -limits[..., 1]
+        limits = np.zeros((center.size, 2), dtype=np.float64)
+        _size = (npoints - 1) * step_size
+        _size[npoints_mask] = 0
+        limits[..., 1] = 0.5 * _size
+        limits[..., 0] = -0.5 * _size
         limits = limits + center[..., None]
         limits = self._validate_limits(limits)
         self._set_limits(limits)
@@ -641,17 +660,32 @@ class GridCNSizeLayer(GridCNStepLayer):
         self._set_npoints(npoints)
 
         size = self._validate_size(self.size)
+        # self._set_size(size)
+
+        # Check for zero size
+        npoints_mask = npoints == 1
+        if np.any(size[np.logical_not(npoints_mask)] == 0):
+            raise ValueError(
+                "Keyword 'size' has axes with 0 length. Each motion "
+                "space axis with more than 1 point needs a physical "
+                "size greater than 0."
+            )
+
+        # ensure sizes with 1 point or 0 length
+        size[npoints_mask] = 0
         self._set_size(size)
 
         # calculate step_size
-        step_size = size / (npoints - 1)
+        step_size = size / np.where(npoints_mask, 1, npoints - 1)
         step_size = self._validate_step_size(step_size)
         self._set_step_size(step_size)
 
         # calculate limits
-        limits = np.empty((center.size, 2), dtype=np.float64)
-        limits[..., 1] = 0.5 * (npoints - 1) * step_size
-        limits[..., 0] = -limits[..., 1]
+        limits = np.zeros((center.size, 2), dtype=np.float64)
+        _size = (npoints - 1) * step_size
+        _size[npoints_mask] = 0
+        limits[..., 1] = 0.5 * _size
+        limits[..., 0] = -0.5 * _size
         limits = limits + center[..., None]
         limits = self._validate_limits(limits)
         self._set_limits(limits)
