@@ -1017,7 +1017,6 @@ class DriveDesktopController(DriveBaseController):
         _btn.setCheckable(True)
         _btn.setChecked(False)
         self.hold_current_btn = _btn
-        self.logger.info(f"Holding curring style sheet:\n{self.hold_current_btn.styleSheet()}")
 
     def _connect_signals(self):
         super()._connect_signals()
@@ -1829,7 +1828,7 @@ class MGWidget(QWidget):
         font.setPointSize(16)
         _widget.setFont(font)
         _widget.setMinimumWidth(220)
-        self.mg_name_widget = _widget
+        self.ml_name_widget = _widget
 
         # Define BUTTONS
 
@@ -1971,7 +1970,7 @@ class MGWidget(QWidget):
 
         self.logger.info(f"Starting mg_config:\n {self._mg_config}")
 
-        self._update_mg_name_widget()
+        self._update_ml_name_widget()
 
         self._spawn_motion_group()
         self._refresh_drive_control()
@@ -1981,7 +1980,7 @@ class MGWidget(QWidget):
         self.transform_btn.clicked.connect(self._popup_transform_configuration)
         self.mb_btn.clicked.connect(self._popup_motion_builder_configuration)
 
-        self.mg_name_widget.editingFinished.connect(self._rename_motion_group)
+        self.ml_name_widget.editingFinished.connect(self._rename_motion_group)
 
         self.configChanged.connect(self._config_changed_handler)
 
@@ -2065,18 +2064,13 @@ class MGWidget(QWidget):
 
     def _define_central_builder_widget(self):
 
-        _label = QLabel("Name:", parent=self)
+        _label = QLabel("Motion List Name", parent=self)
         _label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         font = _label.font()
-        font.setPointSize(16)
+        font.setPointSize(12)
         _label.setFont(font)
+        _label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name_label = _label
-
-        title_sub_layout = QHBoxLayout()
-        title_sub_layout.setContentsMargins(12, 0, 12, 0)
-        title_sub_layout.addWidget(name_label)
-        title_sub_layout.addSpacing(4)
-        title_sub_layout.addWidget(self.mg_name_widget)
 
         drive_sub_layout = QHBoxLayout()
         drive_sub_layout.addWidget(self.drive_label)
@@ -2161,8 +2155,9 @@ class MGWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addSpacing(18)
-        layout.addLayout(title_sub_layout)
+        layout.addSpacing(12)
+        layout.addWidget(name_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.ml_name_widget)
         layout.addSpacing(12)
         layout.addLayout(drive_sub_layout)
         layout.addLayout(mb_sub_layout)
@@ -2352,14 +2347,18 @@ class MGWidget(QWidget):
     def _config_changed_handler(self):
         # Note: none of the methods executed here should cause a
         #       configChanged event
+        self.blockSignals(True)
+        self._rename_motion_group()
+        self._update_ml_name_widget()
+        self.blockSignals(False)
+
         self._validate_motion_group()
 
         # now update displays
-        self._update_mg_name_widget()
-        self._update_toml_widget()
         self._update_drive_dropdown()
         self._update_mb_dropdown()
         self._update_transform_dropdown()
+        self._update_toml_widget()
         self._update_mpl_canvas_mb()
 
         # updating the drive control widget should always be the last
@@ -2446,7 +2445,6 @@ class MGWidget(QWidget):
             and bool(self.mg_config["motion_builder"])
         ):
             _config = _deepcopy_dict(self.mg_config["motion_builder"])
-            pass
         elif (
             not isinstance(self.mg, MotionGroup)
             or not isinstance(self.mg.mb, MotionBuilder)
@@ -2670,22 +2668,28 @@ class MGWidget(QWidget):
     @property
     def mg_config(self) -> Union[Dict[str, Any], "MotionGroupConfig"]:
         if isinstance(self.mg, MotionGroup):
-            self._mg_config = self.mg.config
-            return self._mg_config
+            self._mg_config = _deepcopy_dict(self.mg.config)
         elif self._mg_config is None:
-            name = self.mg_name_widget.text()
-            self._mg_config = {"name": name}
+            self._mg_config = dict()
+            self._rename_motion_group()
 
         return self._mg_config
 
     @Slot(object)
     def _change_drive(self, config: Dict[str, Any]):
         self.logger.info(f"Replacing the motion group's drive with config...\n{config}")
-        mg_config = _deepcopy_dict(self.mg_config)
+        mg_config = self.mg_config
         mg_config["drive"] = _deepcopy_dict(config)
         self._mg_config = mg_config
 
         self._spawn_motion_group()
+
+        if self.mg is None:
+            # motion group is None, so do NOT need to do any more
+            # Note: self._refresh_drive_control() will be triggered
+            #       by the emitted configChanged signal in
+            #       self._spawn_motion_group()
+            return
 
         self.mb_btn.setEnabled(True)
         self.transform_btn.setEnabled(True)
@@ -2797,8 +2801,9 @@ class MGWidget(QWidget):
     def _update_toml_widget(self):
         self.toml_widget.setText(toml.as_toml_string(self.mg_config))
 
-    def _update_mg_name_widget(self):
-        self.mg_name_widget.setText(self.mg_config["name"])
+    def _update_ml_name_widget(self):
+        drive_name, ml_name = self._split_motion_group_name()
+        self.ml_name_widget.setText(ml_name)
 
     def _update_drive_control_widget(self):
         if not self.drive_control_widget.isEnabled():
@@ -2830,8 +2835,41 @@ class MGWidget(QWidget):
 
     def _rename_motion_group(self):
         self.logger.info("Renaming motion group")
-        self.mg.config["name"] = self.mg_name_widget.text()
+        try:
+            drive_name = self.mg_config["drive"]["name"]
+        except (KeyError, TypeError):
+            drive_name = self.drive_dropdown.currentText()
+
+        ml_name = self.ml_name_widget.text()
+        mg_name = f"<{drive_name}>    {ml_name}"
+
+        if isinstance(self.mg, MotionGroup):
+            if self.mg.config["name"] == mg_name:
+                return
+
+            self.mg.config["name"] = mg_name
+        elif self._mg_config is None:
+            self._mg_config = {"name": mg_name}
+        else:
+            if self._mg_config.get("name") == mg_name:
+                return
+
+            self._mg_config["name"] = mg_name
+
         self.configChanged.emit()
+
+    def _split_motion_group_name(self):
+        match = re.compile(
+            r"(<)(?P<drive_name>[\w\s-]+)(>)\s+(?P<ml_name>[\w\s-]+)"
+        ).fullmatch(self.mg_config["name"])
+        if match is not None:
+            drive_name = match.group("drive_name").strip()
+            ml_name = match.group("ml_name").strip()
+        else:
+            drive_name = None
+            ml_name = self.mg_config["name"].strip()
+
+        return drive_name, ml_name
 
     @staticmethod
     def _spawn_motion_builder(config: Dict[str, Any]) -> Union[MotionBuilder, None]:
@@ -2869,7 +2907,7 @@ class MGWidget(QWidget):
         mg = None
         try:
             mg = MotionGroup(
-                config=self.mg_config,
+                config=_deepcopy_dict(self.mg_config),
                 logger=logging.getLogger(f"{self.logger.name}.MG"),
                 loop=self.mg_loop,
                 auto_run=True,
@@ -2971,31 +3009,33 @@ class MGWidget(QWidget):
             self.done_btn.setEnabled(False)
 
     def _validate_motion_group_name(self) -> bool:
-        mg_name = self.mg_name_widget.text()
+        mg_name = self.mg_config["name"]
+        ml_name = self.ml_name_widget.text().strip()
+
         self.logger.info(f"Validating motion group name '{mg_name}'.")
 
         # clear previous tooltips and actions
-        self.mg_name_widget.setToolTip("")
-        for action in self.mg_name_widget.actions():
-            self.mg_name_widget.removeAction(action)
+        self.ml_name_widget.setToolTip("")
+        for action in self.ml_name_widget.actions():
+            self.ml_name_widget.removeAction(action)
 
-        if mg_name == "":
-            self.mg_name_widget.addAction(
+        if ml_name == "":
+            self.ml_name_widget.addAction(
                 qta.icon("fa5.window-close", color="red"),
                 QLineEdit.ActionPosition.LeadingPosition,
             )
-            self.mg_name_widget.setToolTip("Must enter a non-null name.")
+            self.ml_name_widget.setToolTip("Must enter a non-null name.")
             return False
 
         if mg_name in self._deployed_restrictions["mg_names"]:
-            self.mg_name_widget.addAction(
+            self.ml_name_widget.addAction(
                 qta.icon("fa5.window-close", color="red"),
                 QLineEdit.ActionPosition.LeadingPosition,
             )
             deployed_mg_names = [
                 f"'{name}'" for name in self._deployed_restrictions["mg_names"]
             ]
-            self.mg_name_widget.setToolTip(
+            self.ml_name_widget.setToolTip(
                 "Motion group must have a unique name.  The following names "
                 f"are already in used {', '.join(deployed_mg_names)}."
             )
@@ -3126,7 +3166,7 @@ class MGWidget(QWidget):
         self._validate_motion_group()
 
     def return_and_close(self):
-        config = _deepcopy_dict(self.mg.config)
+        config = self.mg_config
         index = -1 if self._mg_index is None else self._mg_index
 
         self.logger.info(
