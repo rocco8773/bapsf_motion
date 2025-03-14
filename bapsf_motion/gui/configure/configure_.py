@@ -57,10 +57,13 @@ _HERE = Path(__file__).parent
 
 
 class RunWidget(QWidget):
-    def __init__(self, parent: "ConfigureGUI"):
+    def __init__(self, parent: "ConfigureGUI", *, enable_run_name: bool = True):
         super().__init__(parent=parent)
 
         self._logger = gui_logger
+        self._enable_run_name = (
+            enable_run_name if isinstance(enable_run_name, bool) else True
+        )
 
         # Define BUTTONS
 
@@ -109,6 +112,18 @@ class RunWidget(QWidget):
         font.setPointSize(16)
         _txt_widget.setFont(font)
         self.run_name_widget = _txt_widget
+        self.run_name_widget.setVisible(self._enable_run_name)
+
+        _txt = QLabel("Run Name:  ", parent=self)
+        _txt.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
+        _txt.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        font = _txt.font()
+        font.setPointSize(16)
+        _txt.setFont(font)
+        self.run_name_label = _txt
+        self.run_name_label.setVisible(self._enable_run_name)
 
         self.setLayout(self._define_layout())
 
@@ -180,15 +195,6 @@ class RunWidget(QWidget):
     def _define_control_layout(self):
         layout = QVBoxLayout()
 
-        run_label = QLabel("Run Name:  ", parent=self)
-        run_label.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt. AlignmentFlag.AlignLeft
-        )
-        run_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        font = run_label.font()
-        font.setPointSize(16)
-        run_label.setFont(font)
-
         mg_label = QLabel("Defined Motion Groups", parent=self)
         mg_label.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
@@ -197,12 +203,14 @@ class RunWidget(QWidget):
         font.setPointSize(16)
         mg_label.setFont(font)
 
-        sub_layout = QHBoxLayout()
-        sub_layout.addWidget(run_label)
-        sub_layout.addWidget(self.run_name_widget)
-        layout.addSpacing(18)
-        layout.addLayout(sub_layout)
-        layout.addSpacing(18)
+        if self._enable_run_name:
+            sub_layout = QHBoxLayout()
+            sub_layout.addWidget(self.run_name_label)
+            sub_layout.addWidget(self.run_name_widget)
+            layout.addSpacing(18)
+            layout.addLayout(sub_layout)
+            layout.addSpacing(18)
+
         layout.addWidget(mg_label)
         layout.addWidget(self.mg_list_widget)
 
@@ -267,9 +275,15 @@ class ConfigureGUI(QMainWindow):
 
         self._define_main_window()
 
+        enable_run_name = False if (
+            self.defaults is not None
+            and "run_name" in self.defaults
+            and self.defaults["run_name"] != ""
+        ) else True
+
         # define "important" qt widgets
         self._log_widget = QLogger(self._logger, parent=self)
-        self._run_widget = RunWidget(parent=self)
+        self._run_widget = RunWidget(parent=self, enable_run_name=enable_run_name)
         self._mg_widget = None  # type: Union[MGWidget, None]
 
         self._stacked_widget = QStackedWidget(parent=self)
@@ -289,7 +303,11 @@ class ConfigureGUI(QMainWindow):
             config = None
 
         if config is None:
-            config = {"name": "A New Run"}
+            run_name = (
+                "A New Run" if self.defaults is None
+                else self.defaults.get("run_name", "A New Run")
+            )
+            config = {"name": run_name}
 
         self.replace_rm(config=config)
 
@@ -511,10 +529,16 @@ class ConfigureGUI(QMainWindow):
                 f"Expected 'defaults' to be of type dict, got type {type(defaults)}."
             )
 
-        if "bapsf_motion" not in defaults.keys():
+        if (
+            "bapsf_motion" not in defaults.keys()
+            or not isinstance(defaults["bapsf_motion"], dict)
+        ):
             # dictionary does not contain a setup for bapsf_motion
             defaults = None
-        elif "defaults" not in defaults["bapsf_motion"].keys():
+        elif (
+            "defaults" not in defaults["bapsf_motion"].keys()
+            or not isinstance(defaults["bapsf_motion"]["defaults"], dict)
+        ):
             # dictionary does not contain a defaults setup for bapsf_motion
             defaults = None
         else:
