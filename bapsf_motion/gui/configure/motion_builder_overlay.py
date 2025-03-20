@@ -39,6 +39,7 @@ from bapsf_motion.gui.widgets import (
     DiscardButton,
     DoneButton,
     HLinePlain,
+    IconButton,
     QLineEditSpecialized,
     StyleButton,
     VLinePlain,
@@ -84,33 +85,29 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._params_widget = QWidget(parent=self)
         self._params_field_widget = QWidget(parent=self._params_widget)
         self._params_input_widgets = {}  # type: Dict[str, Dict[str, QLineEditSpecialized]]
-
-        self._params_widget.setMinimumHeight(300)
-        size_policy = self._params_widget.sizePolicy()
-        size_policy.setRetainSizeWhenHidden(True)
-        self._params_widget.setSizePolicy(size_policy)
+        self.params_label = None
+        self.params_add_btn = None
+        self.params_discard_btn = None
+        self.select_type_label = None
+        self.params_combo_box = None
+        self._initialize_params_layout_widgets()
 
         # SET UP LEFT WIDGETS (i.e. list boxes)
-        self.layer_list_box = QListWidget(parent=self)
-        self.layer_list_box.setMinimumHeight(250)
-        _font = self.layer_list_box.font()
-        _font.setPointSize(12)
-        self.layer_list_box.setFont(_font)
-        self.exclusion_list_box = QListWidget(parent=self)
-        self.exclusion_list_box.setMinimumHeight(250)
-        self.exclusion_list_box.setFont(_font)
 
-        self.add_ly_btn = self._generate_btn_widget("ADD")
-        self.remove_ly_btn = self._generate_btn_widget("REMOVE")
-        self.remove_ly_btn.setEnabled(False)
-        self.edit_ly_btn = self._generate_btn_widget("EDIT")
-        self.edit_ly_btn.setEnabled(False)
+        self.exclusion_list_box = None
+        self.add_ex_btn = None
+        self.remove_ex_btn = None
+        self.edit_ex_btn = None
+        self._initialize_exclusion_list_layout_widgets()
 
-        self.add_ex_btn = self._generate_btn_widget("ADD")
-        self.remove_ex_btn = self._generate_btn_widget("REMOVE")
-        self.remove_ex_btn.setEnabled(False)
-        self.edit_ex_btn = self._generate_btn_widget("EDIT")
-        self.edit_ex_btn.setEnabled(False)
+        self.layer_list_box = None  # type: Union[QListWidget, None]
+        self.add_ly_btn = None
+        self.remove_ly_btn = None
+        self.edit_ly_btn = None
+        self.layer_move_up_btn = None
+        self.layer_move_down_btn = None
+        self.layer_ml_combine_toggle = None
+        self._initialize_layer_list_layout_widgets()
 
         # SET UP PLOT WIDGET
         self.mpl_canvas = MotionSpaceDisplay(parent=self)
@@ -119,53 +116,16 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         if isinstance(self.mg, MotionGroup) and isinstance(self.mg.mb, MotionBuilder):
             self.mpl_canvas.link_motion_builder(self.mg.mb)
 
-        # SET UP INPUT WIDGETS (those in self._params_widget)
-
-        _txt = QLabel("", parent=self._params_widget)
-        _font = _txt.font()
-        _font.setPixelSize(16)
-        _font.setFamily("Courier New")
-        _font.setBold(True)
-        _txt.setFont(_font)
-        self.params_label = _txt
-
-        _btn = DoneButton("Add / Update", parent=self._params_widget)
-        _btn.setFixedHeight(34)
-        _font = _btn.font()
-        _font.setPointSize(12)
-        _btn.setFont(_font)
-        _btn.shrink_width()
-        self.params_add_btn = _btn
-
-        _btn = DiscardButton(parent=self._params_widget)
-        _btn.setFixedHeight(34)
-        _btn.setFont(_font)
-        _btn.shrink_width(scale=2)
-        self.params_discard_btn = _btn
-
-        _txt = QLabel("Type :", parent=self._params_widget)
-        _font = _txt.font()
-        _font.setPixelSize(16)
-        _font.setBold(False)
-        _txt.setFont(_font)
-        self.select_type_label = _txt
-
-        _txt = QComboBox(parent=self._params_widget)
-        _txt.setFixedHeight(34)
-        _txt.setFixedWidth(250)
-        _txt.setEditable(False)
-        font = _txt.font()
-        font.setPointSize(12)
-        _txt.setFont(font)
-        self.params_combo_box = _txt
-
         # non-widget initialization
 
         self._initialize_motion_builder()
+        self._initialize_exclusion_list_box()
+        self._initialize_layer_list_box()
         self.setLayout(self._define_layout())
 
         self.update_exclusion_list_box()
         self.update_layer_list_box()
+        self.update_layer_ml_combine_toggle()
         self.update_canvas()
 
         self._connect_signals()
@@ -196,6 +156,13 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.exclusion_list_box.itemSelectionChanged.connect(
             self.exclusion_list_box_set_btn_enable
         )
+
+        self.layer_ml_combine_toggle.clicked.connect(
+            self._toggle_layer_to_motionlist_scheme
+        )
+
+        self.layer_move_up_btn.clicked.connect(self._layer_list_item_move_up)
+        self.layer_move_down_btn.clicked.connect(self._layer_list_item_move_down)
 
     def _define_layout(self):
         #
@@ -340,7 +307,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             _txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
             _txt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             _txt.setObjectName(f"{name}_min")
-            _txt.setValidator(QDoubleValidator(decimals=1))
+            _txt.setValidator(QDoubleValidator(decimals=1))  # noqa
             _txt.editingFinishedPayload.connect(self._validate_space_inputs)
             min_range = _txt
 
@@ -349,7 +316,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             _txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
             _txt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             _txt.setObjectName(f"{name}_max")
-            _txt.setValidator(QDoubleValidator(decimals=1))
+            _txt.setValidator(QDoubleValidator(decimals=1))  # noqa
             _txt.editingFinishedPayload.connect(self._validate_space_inputs)
             max_range = _txt
 
@@ -365,7 +332,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             _txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
             _txt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             _txt.setObjectName(f"{name}_delta")
-            _txt.setValidator(QDoubleValidator(decimals=2))
+            _txt.setValidator(QDoubleValidator(decimals=2))  # noqa
             _txt.editingFinishedPayload.connect(self._validate_space_inputs)
             delta = _txt
 
@@ -412,38 +379,6 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _txt.setFont(font)
         title = _txt
 
-        ex_types = set(ex.exclusion_type for ex in self.mb.exclusions)
-
-        _available = self.exclusion_registry.get_names_by_dimensionality(
-            self.dimensionality
-        )
-        ex_names = []
-        if not _available:
-            self.logger.warning(
-                "There are no coded exclusion layers that work with the "
-                f"dimensionality of the existing probe drive, {self.dimensionality}."
-            )
-            self.add_ex_btn.setEnabled(False)
-            self.remove_ex_btn.setEnabled(False)
-            self.edit_ex_btn.setEnabled(False)
-
-            exclusions = self.mb.exclusions.copy()
-            for ex in exclusions:
-                self.mb.remove_exclusion(ex.name)
-
-        elif ex_types - _available:
-            exclusions = self.mb.exclusions.copy()
-            for ex in exclusions:
-                if ex.exclusion_type in _available:
-                    ex_names.append(
-                        self._generate_list_name(ex.name, ex.exclusion_type)
-                    )
-                    continue
-
-                self.mb.remove_exclusion(ex.name)
-
-        self.exclusion_list_box.addItems(ex_names)
-
         sub_layout = QHBoxLayout()
         sub_layout.setContentsMargins(0, 0, 0, 0)
         sub_layout.setSpacing(8)
@@ -473,44 +408,58 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _txt.setFont(font)
         title = _txt
 
-        ly_types = set(ly.layer_type for ly in self.mb.layers)
+        order_label = QLabel("\n".join(list("ORDER ITEM")), parent=self)
+        order_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        order_label.setFixedWidth(10)
+        order_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        _font = order_label.font()
+        _font.setBold(True)
+        order_label.setFont(_font)
 
-        _available = self.layer_registry.get_names_by_dimensionality(
-            self.dimensionality
-        )
-        ly_names = []
-        if not _available:
-            self.logger.warning(
-                "There are no coded point layers that work with the "
-                f"dimensionality of the existing probe drive, {self.dimensionality}."
-            )
-            self.add_ly_btn.setEnabled(False)
-            self.remove_ly_btn.setEnabled(False)
-            self.edit_ly_btn.setEnabled(False)
+        _txt = QLabel("Merge", parent=self)
+        _txt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        _font = _txt.font()
+        _font.setPointSize(12)
+        _txt.setFont(_font)
+        _merge_txt = _txt
 
-            layers = self.mb.layers.copy()
-            for ly in layers:
-                self.mb.remove_layer(ly.name)
+        _txt = QLabel("Sequential", parent=self)
+        _txt.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        _txt.setFont(_font)
+        _sequential_txt = _txt
 
-        elif ly_types - _available:
-            layers = self.mb.layers.copy()
-            for ly in layers:
-                if ly.layer_type in _available:
-                    ly_names.append(
-                        self._generate_list_name(ly.name, ly.layer_type)
-                    )
-                    continue
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(8)
+        btn_layout.addWidget(self.add_ly_btn)
+        btn_layout.addWidget(self.remove_ly_btn)
+        btn_layout.addWidget(self.edit_ly_btn)
 
-                self.mb.remove_layer(ly.name)
+        order_layout = QVBoxLayout()
+        order_layout.setContentsMargins(0, 0, 0, 0)
+        order_layout.addStretch()
+        order_layout.addWidget(self.layer_move_up_btn)
+        order_layout.addSpacing(4)
+        order_layout.addWidget(self.layer_move_down_btn)
+        order_layout.addStretch()
+        order_widget = QWidget(parent=self)
+        order_widget.setLayout(order_layout)
+        order_widget.setFixedWidth(24)
 
-        self.layer_list_box.addItems(ly_names)
+        list_layout = QHBoxLayout()
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.addWidget(self.layer_list_box)
+        list_layout.addWidget(order_label)
+        list_layout.addWidget(order_widget)
 
-        sub_layout = QHBoxLayout()
-        sub_layout.setContentsMargins(0, 0, 0, 0)
-        sub_layout.setSpacing(8)
-        sub_layout.addWidget(self.add_ly_btn)
-        sub_layout.addWidget(self.remove_ly_btn)
-        sub_layout.addWidget(self.edit_ly_btn)
+        ml_combine_layout = QHBoxLayout()
+        ml_combine_layout.setContentsMargins(0, 0, 0, 0)
+        ml_combine_layout.addStretch()
+        ml_combine_layout.addWidget(_sequential_txt)
+        ml_combine_layout.addWidget(self.layer_ml_combine_toggle)
+        ml_combine_layout.addWidget(_merge_txt)
+        ml_combine_layout.addStretch()
+        ml_combine_layout.addSpacing(24+10+12)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -520,16 +469,13 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
         )
         layout.addSpacing(2)
-        layout.addWidget(self.layer_list_box)
-        layout.addLayout(sub_layout)
+        layout.addLayout(list_layout)
+        layout.addLayout(ml_combine_layout)
+        layout.addLayout(btn_layout)
 
         return layout
 
-    def _define_plot_layout(self):
-        ...
-
-    def _define_params_widget(self):
-
+    def _define_params_layout(self):
         self.params_add_btn.setEnabled(False)
 
         banner_layout = QHBoxLayout()
@@ -574,7 +520,10 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         layout.addWidget(self._params_field_widget)
         layout.addStretch()
 
-        self._params_widget.setLayout(layout)
+        return layout
+
+    def _define_params_widget(self):
+        self._params_widget.setLayout(self._define_params_layout())
         self._params_widget.hide()
         return self._params_widget
 
@@ -685,6 +634,206 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _widget.setLayout(layout)
         return _widget
 
+    def _initialize_exclusion_list_layout_widgets(self):
+        self.exclusion_list_box = QListWidget(parent=self)
+        self.exclusion_list_box.setMinimumHeight(250)
+        _font = self.exclusion_list_box.font()
+        _font.setPointSize(11)
+        self.exclusion_list_box.setFont(_font)
+
+        self.add_ex_btn = self._generate_btn_widget("ADD")
+
+        self.remove_ex_btn = self._generate_btn_widget("REMOVE")
+        self.remove_ex_btn.setEnabled(False)
+
+        self.edit_ex_btn = self._generate_btn_widget("EDIT")
+        self.edit_ex_btn.setEnabled(False)
+
+    def _initialize_layer_list_layout_widgets(self):
+        self.layer_list_box = QListWidget(parent=self)
+        self.layer_list_box.setMinimumHeight(250)
+        _font = self.layer_list_box.font()
+        _font.setPointSize(11)
+        self.layer_list_box.setFont(_font)
+
+        self.add_ly_btn = self._generate_btn_widget("ADD")
+
+        self.remove_ly_btn = self._generate_btn_widget("REMOVE")
+        self.remove_ly_btn.setEnabled(False)
+
+        self.edit_ly_btn = self._generate_btn_widget("EDIT")
+        self.edit_ly_btn.setEnabled(False)
+
+        self.layer_move_up_btn = IconButton("fa.arrow-up", parent=self)
+        self.layer_move_up_btn.setIconSize(20)
+        self.layer_move_up_btn.setFixedWidth(24)
+        self.layer_move_up_btn.setFixedHeight(48)
+        self.layer_move_down_btn = IconButton("fa.arrow-down", parent=self)
+        self.layer_move_down_btn.setIconSize(18)
+        self.layer_move_down_btn.setFixedWidth(24)
+        self.layer_move_down_btn.setFixedHeight(48)
+
+        _btn = StyleButton("ML Combine", parent=self)
+        _btn.setFixedHeight(24)
+        font = _btn.font()
+        font.setPointSize(10)
+        _btn.setFont(font)
+        _color_str = "rgb(52, 161, 219)"
+        _btn.update_style_sheet(
+            styles={
+                "background-color": re.sub(
+                    " +",
+                    " ",
+                    f"""qlineargradient(
+                        x1:0,
+                        y1:0, 
+                        x2:1, 
+                        y2:0,
+                        stop: 0 {_color_str},
+                        stop: 0.1 {_color_str},
+                        stop: 0.12 rgb(163, 163, 163),
+                        stop: 1 rgb(163, 163, 163)
+                    )""".replace("\n", "")
+                ),
+            },
+            action="base",
+        )
+        _btn.update_style_sheet(
+            styles={
+                "background-color": re.sub(
+                    " +",
+                    " ",
+                    f"""qlineargradient(
+                        x1:0,
+                        y1:0, 
+                        x2:1, 
+                        y2:0,
+                        stop: 0 rgb(163, 163, 163),
+                        stop: 0.88 rgb(163, 163, 163),
+                        stop: 0.9 {_color_str},
+                        stop: 1 {_color_str}
+                    )""".replace("\n", "")
+                ),
+            },
+            action="checked",
+        )
+        _btn.setCheckable(True)
+        _btn.setChecked(False)
+        _btn.setFixedWidth(180)
+        self.layer_ml_combine_toggle = _btn
+
+    def _initialize_params_layout_widgets(self):
+        self._params_widget.setMinimumHeight(300)
+        size_policy = self._params_widget.sizePolicy()
+        size_policy.setRetainSizeWhenHidden(True)
+        self._params_widget.setSizePolicy(size_policy)
+
+        _txt = QLabel("", parent=self._params_widget)
+        _font = _txt.font()
+        _font.setPointSize(14)
+        _font.setFamily("Courier New")
+        _font.setBold(True)
+        _txt.setFont(_font)
+        self.params_label = _txt
+
+        _btn = DoneButton("Add / Update", parent=self._params_widget)
+        _btn.setFixedHeight(34)
+        _font = _btn.font()
+        _font.setPointSize(12)
+        _btn.setFont(_font)
+        _btn.shrink_width()
+        self.params_add_btn = _btn
+
+        _btn = DiscardButton(parent=self._params_widget)
+        _btn.setFixedHeight(34)
+        _font = _btn.font()
+        _font.setPointSize(12)
+        _btn.setFont(_font)
+        _btn.shrink_width(scale=2)
+        self.params_discard_btn = _btn
+
+        _txt = QLabel("Type :", parent=self._params_widget)
+        _font = _txt.font()
+        _font.setPixelSize(16)
+        _font.setBold(False)
+        _txt.setFont(_font)
+        self.select_type_label = _txt
+
+        _txt = QComboBox(parent=self._params_widget)
+        _txt.setFixedHeight(34)
+        _txt.setFixedWidth(250)
+        _txt.setEditable(False)
+        font = _txt.font()
+        font.setPointSize(12)
+        _txt.setFont(font)
+        self.params_combo_box = _txt
+
+    def _initialize_exclusion_list_box(self):
+        ex_types = set(ex.exclusion_type for ex in self.mb.exclusions)
+
+        _available = self.exclusion_registry.get_names_by_dimensionality(
+            self.dimensionality
+        )
+        ex_names = []
+        if not _available:
+            self.logger.warning(
+                "There are no coded exclusion layers that work with the "
+                f"dimensionality of the existing probe drive, {self.dimensionality}."
+            )
+            self.add_ex_btn.setEnabled(False)
+            self.remove_ex_btn.setEnabled(False)
+            self.edit_ex_btn.setEnabled(False)
+
+            exclusions = self.mb.exclusions.copy()
+            for ex in exclusions:
+                self.mb.remove_exclusion(ex.name)
+
+        elif ex_types - _available:
+            exclusions = self.mb.exclusions.copy()
+            for ex in exclusions:
+                if ex.exclusion_type in _available:
+                    ex_names.append(
+                        self._generate_list_name(ex.name, ex.exclusion_type)
+                    )
+                    continue
+
+                self.mb.remove_exclusion(ex.name)
+
+        self.exclusion_list_box.addItems(ex_names)
+
+    def _initialize_layer_list_box(self):
+        ly_types = set(ly.layer_type for ly in self.mb.layers)
+
+        _available = self.layer_registry.get_names_by_dimensionality(
+            self.dimensionality
+        )
+        ly_names = []
+        if not _available:
+            self.logger.warning(
+                "There are no coded point layers that work with the "
+                f"dimensionality of the existing probe drive, {self.dimensionality}."
+            )
+            self.add_ly_btn.setEnabled(False)
+            self.remove_ly_btn.setEnabled(False)
+            self.edit_ly_btn.setEnabled(False)
+
+            layers = self.mb.layers.copy()
+            for ly in layers:
+                self.mb.remove_layer(ly.name)
+
+        elif ly_types - _available:
+            layers = self.mb.layers.copy()
+            for ly in layers:
+                if ly.layer_type in _available:
+                    ly_names.append(
+                        self._generate_list_name(ly.name, ly.layer_type)
+                    )
+                    continue
+
+                self.mb.remove_layer(ly.name)
+
+        self.layer_list_box.addItems(ly_names)
+
     # -- WIDGET INTERACTION FUNCTIONALITY --
 
     def _config_changed_handler(self):
@@ -695,6 +844,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         # now update displays
         self.update_exclusion_list_box()
         self.update_layer_list_box()
+        self.update_layer_ml_combine_toggle()
         self.update_canvas()
 
     def _exclusion_configure_new(self):
@@ -815,6 +965,62 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self._refresh_params_widget()
         self._show_params_widget()
+
+    def _layer_list_item_move_up(self):
+        item = self.layer_list_box.currentItem()
+        if item is None:
+            # no item is selected
+            return
+
+        item_name = item.text()
+        layer_name = self._get_layer_name_from_list_name(item_name)
+        move_to_index = None
+        for ii, layer in enumerate(self.mb.layers):
+            if layer_name == layer.name:
+                current_index = ii
+                move_to_index = current_index - 1
+                break
+
+        if move_to_index is None:
+            # item was not found, do nothing
+            return
+        elif move_to_index == -1:
+            # item is already at the top of the list
+            return
+
+        layer = self.mb.layers.pop(current_index)  # noqa
+        self.mb.layers.insert(move_to_index, layer)
+        self.mb.generate()
+        self.configChanged.emit()
+        self.layer_list_box.setCurrentRow(move_to_index)
+
+    def _layer_list_item_move_down(self):
+        item = self.layer_list_box.currentItem()
+        if item is None:
+            # no item is selected
+            return
+
+        item_name = item.text()
+        layer_name = self._get_layer_name_from_list_name(item_name)
+        move_to_index = None
+        for ii, layer in enumerate(self.mb.layers):
+            if layer_name == layer.name:
+                current_index = ii
+                move_to_index = current_index + 1
+                break
+
+        if move_to_index is None:
+            # item was not found, do nothing
+            return
+        elif move_to_index == len(self.mb.layers):
+            # item is already at the end of the list
+            return
+
+        layer = self.mb.layers.pop(current_index)  # noqa
+        self.mb.layers.insert(move_to_index, layer)
+        self.mb.generate()
+        self.configChanged.emit()
+        self.layer_list_box.setCurrentRow(move_to_index)
 
     def _layer_modify_existing(self):
         item = self.layer_list_box.currentItem()
@@ -938,6 +1144,15 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
     def _show_params_widget(self):
         self._params_field_widget.setEnabled(True)
         self._params_widget.show()
+
+    def _toggle_layer_to_motionlist_scheme(self):
+        if not isinstance(self.mb, MotionBuilder):
+            return
+
+        _scheme = "merge" if self.layer_ml_combine_toggle.isChecked() else "sequential"
+        self.logger.info(f"Toggling motion list scheme to {_scheme}.")
+        self.mb.layer_to_motionlist_scheme = _scheme
+        self.configChanged.emit()
 
     @Slot(object)
     def _update_param_inputs(self, input_widget: "QLineEditSpecialized"):
@@ -1085,11 +1300,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             return
 
         space_config[axis_index] = axis_config
-        config = {
-            "space": space_config,
-            "exclusion": self.mb.config.get("exclusion", None),
-            "layer": self.mb.config.get("layer", None),
-        }
+        config = {**self.mb.config, "space": space_config}
         self._spawn_motion_builder(config)
 
     def _validate_inputs(self):
@@ -1170,9 +1381,9 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.remove_ex_btn.setEnabled(False)
         self.edit_ex_btn.setEnabled(False)
 
-        ex_names = set(
-            self._generate_list_name(ex.name, ex.exclusion_type)
-            for ex in self.mb.exclusions
+        ex_names = (
+            self._generate_list_name(ii, ex.name, ex.exclusion_type)
+            for ii, ex in enumerate(self.mb.exclusions)
         )
         self.exclusion_list_box.clear()
 
@@ -1186,9 +1397,9 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.remove_ly_btn.setEnabled(False)
         self.edit_ly_btn.setEnabled(False)
 
-        ly_names = set(
-            self._generate_list_name(ly.name, ly.layer_type)
-            for ly in self.mb.layers
+        ly_names = (
+            self._generate_list_name(ii, ly.name, ly.layer_type)
+            for ii, ly in enumerate(self.mb.layers)
         )
 
         self.layer_list_box.clear()
@@ -1197,6 +1408,12 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             return
 
         self.layer_list_box.addItems(ly_names)
+
+    def update_layer_ml_combine_toggle(self):
+        _scheme = self.mb.layer_to_motionlist_scheme
+        self.logger.info(f"Updating Layer ML Combine Toggle - {_scheme}")
+        _check_state = False if _scheme == "sequential" else True
+        self.layer_ml_combine_toggle.setChecked(_check_state)
 
     # -- NORMAL METHODS --
 
@@ -1232,13 +1449,13 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         return btn
 
     @staticmethod
-    def _generate_list_name(name, _type):
-        return f"{name:<17} <type = {_type}>"
+    def _generate_list_name(_index, name, _type):
+        return f"[{_index:02d}]  {name:<17} <type = {_type}>"
 
     @staticmethod
     def _get_layer_name_from_list_name(list_name):
         match = re.compile(
-            r"(?P<name>\S+)\s+(<type = )(?P<type>\S+)(>)"
+            r"(\[)(?P<index>\d+)(])\s+(?P<name>\S+)\s+(<type = )(?P<type>\S+)(>)"
         ).fullmatch(list_name)
         return None if match is None else match.group("name")
 
@@ -1288,21 +1505,22 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
     def _spawn_motion_builder(self, config):
         self.logger.info("Rebuilding motion builder...")
-        space = list(config["space"].values())
+        mb_config = _deepcopy_dict(config)
+        mb_config["space"] = list(config["space"].values())
 
-        exclusions = config.get("exclusion", None)
+        exclusions = mb_config.pop("exclusion", None)
         if exclusions is not None:
-            exclusions = list(exclusions.values())
+            mb_config["exclusions"] = list(exclusions.values())
 
-        layers = config.get("layer", None)
+        layers = mb_config.pop("layer", None)
         if layers is not None:
-            layers = list(layers.values())
+            mb_config["layers"] = list(layers.values())
 
-        self.logger.info(f"space looks like : {space}")
-        self.logger.info(f"exclusion look like : {exclusions}")
-        self.logger.info(f"layer looks like : {layers}")
+        self.logger.info(f"space looks like : {mb_config['space']}")
+        self.logger.info(f"exclusion look like : {mb_config['exclusions']}")
+        self.logger.info(f"layer looks like : {mb_config['layers']}")
 
-        self._mb = MotionBuilder(space=space, exclusions=exclusions, layers=layers)
+        self._mb = MotionBuilder(**mb_config)
         self.mpl_canvas.link_motion_builder(self._mb)
         self.configChanged.emit()
         return self._mb

@@ -47,6 +47,13 @@ class MotionBuilder(MBItem):
     space
     layers
     exclusions
+    layer_to_motionlist_scheme : `str`
+        (``'sequential'`` or ``'merge'``) The style in which the point
+        layers are combined to form the motion list.  ``'sequential'``
+        means that the point layers are added sequentially to form the
+        motion list, and ``'merge'`` means the point layers are merged
+        together (i.e. removing duplicate points and sorting points) to
+        form one "global" motion list. (DEFAULT ``'sequential'``)
     """
     # TODO: ^ fully write out the above docstring
 
@@ -67,8 +74,13 @@ class MotionBuilder(MBItem):
             space: Union[str, List[Dict[str, Any]]],
             layers: Optional[List[Dict[str, Any]]] = None,
             exclusions: Optional[List[Dict[str, Any]]] = None,
+            layer_to_motionlist_scheme: str = "sequential",
     ):
         self._space = self._validate_space(space)
+
+        if layer_to_motionlist_scheme not in ("merge", "sequential"):
+            layer_to_motionlist_scheme = "sequential"
+        self._layer_to_motionlist_scheme = layer_to_motionlist_scheme
 
         super().__init__(
             self._build_initial_ds(),
@@ -76,7 +88,7 @@ class MotionBuilder(MBItem):
             name_pattern=re.compile(r"motion_builder")
         )
 
-        self.layers = []  # type: List[BaseLayer]
+        self._layers = []  # type: List[BaseLayer]
         if layers is not None:
             # add each defined layer
             for layer in layers:
@@ -98,7 +110,10 @@ class MotionBuilder(MBItem):
         Dictionary containing the full configuration of the
         :term:`motion builder`.
         """
-        _config = {"space": {}}
+        _config = {
+            "space": {},
+            "layer_to_motionlist_scheme": self.layer_to_motionlist_scheme,
+        }
 
         # pack the space config
         for ii, item in enumerate(self._space):
@@ -122,6 +137,31 @@ class MotionBuilder(MBItem):
     def exclusions(self) -> List[BaseExclusion]:
         """List of added exclusion layers."""
         return self._exclusions
+
+    @property
+    def layers(self) -> List[BaseLayer]:
+        """List of added point "motion list" layers."""
+        return self._layers
+
+    @property
+    def layer_to_motionlist_scheme(self) -> str:
+        """
+        The style in which the point layers are combined to form the
+        motion list.  ``'sequential'`` means that the point layers are
+        added sequentially to form the motion list, and ``'merge'``
+        means the point layers are merged together (i.e. remove
+        duplicate points and sort points) to form one "global" motion
+        list.
+        """
+        return self._layer_to_motionlist_scheme
+
+    @layer_to_motionlist_scheme.setter
+    def layer_to_motionlist_scheme(self, value: str) -> None:
+        if value not in ("sequential", "merge"):
+            return
+
+        self._layer_to_motionlist_scheme = value
+        self.generate()
 
     @staticmethod
     def _validate_space(space: List[Dict[str, Any]]):
@@ -235,7 +275,7 @@ class MotionBuilder(MBItem):
         """
         # TODO: add ref in docstring to documented available layers
         layer = layer_factory(self._ds, ly_type=ly_type, **settings)
-        self.layers.append(layer)
+        self._layers.append(layer)
         self.clear_motion_list()
 
     def remove_layer(self, name: str):
@@ -253,7 +293,7 @@ class MotionBuilder(MBItem):
             if layer.name == name:
                 # TODO: can we define a __del__ in BaseLayer that would
                 #       handle cleanup for layer classes
-                del self.layers[ii]
+                del self._layers[ii]
                 self.drop_vars(name)
                 break
 
@@ -403,17 +443,67 @@ class MotionBuilder(MBItem):
 
         points = np.concatenate(for_concatenation, axis=0)
 
-        select = {}
-        for ii, dim_name in enumerate(self.mask.dims):
-            select[dim_name] = points[..., ii]
+        if self.layer_to_motionlist_scheme == "merge":
+            points = np.unique(points, axis=0)
 
-        # TODO: Does this properly exclude points that are outside the
-        #       motion space?
-        mask = np.diag(self.mask.sel(method="nearest", **select))
+        mask = self.generate_excluded_mask(points)
         self._ds["motion_list"] = xr.DataArray(
             data=points[mask, ...],
             dims=("index", "space")
         )
+
+    def generate_excluded_mask(self, points) -> np.ndarray:
+        """
+        Generate a boolean mask for the given set of ``points`` where
+        `True` indicates the point is valid and `False` the point is
+        in an excluded region.  ``points`` should be a
+        :math:`M \times n` array where :math:`M` is the number of points
+        to examine and :math:`N` is equal to the motion space
+        dimensionality.
+        """
+        if not isinstance(points, np.ndarray):
+            points = np.array(points)
+        else:
+            points = points.copy()
+
+        # make sure points is always an M X N matrix
+        if points.ndim == 1 and points.size == self.mspace_ndims:
+            # single point was given
+            points = points[np.newaxis, ...]
+        elif points.ndim != 2:
+            raise ValueError(
+                f"Expected a 2D array of shape (M, {self.mspace_ndims}) "
+                f"for 'points', but got a {points.ndim}-D array."
+            )
+        elif self.mspace_ndims not in points.shape:
+            raise ValueError(
+                f"Expected a 2D array of shape (M, {self.mspace_ndims}) "
+                f"for 'points', but got shape {points.shape}."
+            )
+        elif points.shape[1] != self.mspace_ndims:
+            # dimensions are flipped from expected
+            points = np.swapaxes(points, 0, 1)
+
+        if np.issubdtype(points.dtype, np.floating):
+            pass
+        elif np.issubdtype(points.dtype, np.integer):
+            points = points.astype(np.float64)
+        else:
+            raise ValueError(
+                "Expected a 2D array of dtype integer or floating, but "
+                f"got dtype {points.dtype}."
+            )
+
+        select = {}
+        for ii, dim_name in enumerate(self.mask.dims):
+            select[dim_name] = points[..., ii]
+
+        # Note: np.diag is used here since xr.sel will search for all
+        #       combinations of given indexers, but we are only
+        #       interested in the points along the diagonal of this
+        #       forced combination
+        mask = np.diag(self.mask.sel(method="nearest", **select))
+        return mask
 
     def get_insertion_point(self) -> Union[np.ndarray, None]:
         """
