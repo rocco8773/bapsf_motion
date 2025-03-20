@@ -9,10 +9,10 @@ import logging
 import numpy as np
 import warnings
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout
-from typing import Union
+from typing import List, Union
 
 from bapsf_motion.gui.configure.helpers import gui_logger
 from bapsf_motion.motion_builder import MotionBuilder
@@ -31,6 +31,14 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 class MotionSpaceDisplay(QFrame):
     mbChanged = Signal()
     targetPositionSelected = Signal(list)
+    animateMotionListStarted = Signal()
+    animateMotionListFinished = Signal()
+    animateMotionListPaused = Signal()
+    animateMotionListCleared = Signal()
+
+    _default_legend_names = [
+        "motion_list", "probe", "position", "target", "insertion_point"
+    ]
 
     _default_legend_names = [
         "motion_list", "probe", "position", "target", "insertion_point"
@@ -48,6 +56,9 @@ class MotionSpaceDisplay(QFrame):
         self._display_position = True
         self._display_target_position = True
         self._display_probe = True
+        self._animate_payload = None
+
+        self._motionlist_plot_names = None  # type: Union[None, List[str]]
 
         self._motionlist_plot_names = None  # type: Union[None, List[str]]
 
@@ -79,6 +90,7 @@ class MotionSpaceDisplay(QFrame):
             "pick_event", self.on_pick  # noqa
         )
         self.targetPositionSelected.connect(self.update_target_position_plot)
+        self.animateMotionListFinished.connect(self.animate_motion_list_pause)
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -133,6 +145,17 @@ class MotionSpaceDisplay(QFrame):
         if value:
             self._display_position = value
 
+    @property
+    def is_animating_motion_list(self):
+        if self._animate_payload is None:
+            return False
+
+        if self._animate_payload["finished"]:
+            return False
+
+        _timer = self._animate_payload["timer"]  # type: QTimer
+        return _timer.isActive()
+
     def _get_plot_axis_by_name(self, name: str):
         fig_axes = self.mpl_canvas.figure.axes
         for ax in fig_axes:
@@ -149,6 +172,145 @@ class MotionSpaceDisplay(QFrame):
             return ax, handler
 
         return None
+
+    def animate_motion_list(self):
+        if self._animate_payload is not None and not self._animate_payload["finished"]:
+            self._animate_payload["timer"].start()
+            self.animateMotionListStarted.emit()
+            return
+        elif self._animate_payload is not None:
+            self.animate_motion_list_clear()
+            self._animate_payload = None
+        elif self.mb.motion_list is None:
+            self.animate_motion_list_clear()
+            return
+
+        self._animate_motion_list_init_payload()
+        self._animate_payload["timer"].start()  # noqa
+
+        self.animateMotionListStarted.emit()
+
+    def _animate_motion_list_init_payload(self):
+        delay = 200  # msec
+        _timer = QTimer(parent=self)
+        _timer.setInterval(delay)
+        _timer.timeout.connect(self._update_motion_list_trace)
+
+        motionlist_size = self.mb.motion_list.shape[0]
+        index_step = np.floor(motionlist_size / (60000 / _timer.interval())).astype(int)
+        index_step = 1 if index_step == 0 else index_step
+
+        self._animate_payload = {
+            "index": 0,  # type: int
+            "index_step": index_step,  # type: int
+            "delay": delay,  # type: int
+            "timer": _timer,  # type: QTimer
+            "finished": False,
+        }
+
+    def animate_motion_list_pause(self):
+        if self._animate_payload is None:
+            return
+
+        self._animate_payload["timer"].stop()
+
+        if not self._animate_payload["finished"]:
+            self.animateMotionListPaused.emit()
+
+    def animate_motion_list_clear(self):
+        if self._animate_payload is None:
+            return
+
+        self._animate_payload["timer"].stop()
+        self._animate_payload["timer"].deleteLater()
+        self._animate_payload = None
+
+        _animate_ml_labels = ["motionlist_start", "motionlist_stop", "motionlist_trace"]
+        for _label in _animate_ml_labels:
+            stuff = self._get_plot_axis_by_name(_label)
+            if stuff is None:
+                continue
+
+            ax, handler = stuff
+            handler.remove()
+
+        self.mpl_canvas.draw()
+
+        self.animateMotionListCleared.emit()
+
+    def _update_motion_list_trace(self, *, to_index: int = None):
+        if to_index is None and self._animate_payload is None:
+            return
+        elif to_index is None:
+            to_index = self._animate_payload["index"]
+        elif self._animate_payload is None:
+            return
+        elif self._animate_payload["finished"]:
+            return
+
+        # update plot
+        _animate_ml_labels = ["motionlist_start", "motionlist_stop", "motionlist_trace"]
+        for _label in _animate_ml_labels:
+
+            stuff = self._get_plot_axis_by_name(_label)
+
+            if stuff is not None and _label in ("motionlist_start", "motionlist_stop"):
+                ax, handler = stuff  # type: plt.Axes, PathCollection
+
+                index = 0 if _label == "motionlist_start" else to_index
+                point = self.mb.motion_list[index, ...].squeeze()
+
+                handler.set_offsets(point)
+            elif stuff is not None:
+                # this is the trace
+                ax, handler = stuff  # type: plt.Axes, plt.Line2D
+
+                xdata = self.mb.motion_list[0:to_index + 1, 0]
+                ydata = self.mb.motion_list[0:to_index + 1, 1]
+
+                handler.set_xdata(xdata)
+                handler.set_ydata(ydata)
+            elif _label == "motionlist_trace":
+                # trace has not been made yet
+                ax = self.mpl_canvas.figure.gca()
+
+                xdata = self.mb.motion_list[0:to_index + 1, 0]
+                ydata = self.mb.motion_list[0:to_index + 1, 1]
+
+                ax.plot(
+                    xdata,
+                    ydata,
+                    color="black",
+                    linewidth=1,
+                    label=_label,
+                )
+            else:
+                # this is the start and end points
+                ax = self.mpl_canvas.figure.gca()
+
+                points = self.mb.motion_list[0:to_index + 1, ...]
+
+                ax.scatter(
+                    x=points[..., 0],
+                    y=points[..., 1],
+                    s=6 ** 2,
+                    linewidth=1,
+                    facecolors="none",
+                    edgecolors="black",
+                    label=_label,
+                )
+
+        self.mpl_canvas.draw()
+        if to_index == self.mb.motion_list.shape[0]-1:
+            self._animate_payload["finished"] = True
+            self.animateMotionListFinished.emit()
+            return
+
+        to_index += self._animate_payload["index_step"]
+        if to_index >= self.mb.motion_list.shape[0]:
+            to_index = self.mb.motion_list.shape[0] - 1
+
+        self._animate_payload["index"] = to_index
 
     def on_pick(self, event: PickEvent):
         if not self.display_target_position:
@@ -211,8 +373,13 @@ class MotionSpaceDisplay(QFrame):
         if self.isHidden():
             self.setHidden(False)
 
-        self.logger.info("Redrawing plot...")
-        self.logger.info(f"MB config = {self.mb.config}")
+        self.logger.info("Redrawing Motion Space Display...")
+
+        # stop motion list animation while re-plotting
+        is_animating = self.is_animating_motion_list
+        self.blockSignals(True)
+        self.animate_motion_list_clear()
+        self.blockSignals(False)
 
         # retrieve last position
         stuff = self._get_plot_axis_by_name("position")
@@ -283,6 +450,12 @@ class MotionSpaceDisplay(QFrame):
         self.update_legend()
 
         self.mpl_canvas.draw()
+
+        # re-start the motion list animation
+        if is_animating:
+            self.blockSignals(True)
+            self.animate_motion_list()
+            self.blockSignals(False)
 
     def update_legend(self):
         _plotted_layers = (

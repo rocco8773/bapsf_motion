@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QVBoxLayout,
     QComboBox,
+    QFrame,
 )
 from typing import Any, Dict, Optional, Union
 
@@ -94,7 +95,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         # SET UP LEFT WIDGETS (i.e. list boxes)
 
-        self.exclusion_list_box = None
+        self.exclusion_list_box = None  # type: Union[QListWidget, None]
         self.add_ex_btn = None
         self.remove_ex_btn = None
         self.edit_ex_btn = None
@@ -115,6 +116,39 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.mpl_canvas.display_target_position = False
         if isinstance(self.mg, MotionGroup) and isinstance(self.mg.mb, MotionBuilder):
             self.mpl_canvas.link_motion_builder(self.mg.mb)
+
+        self.animate_ml_widget = QFrame(parent=self)
+        self.animate_ml_widget.setObjectName("animate_ml_controls")
+        self.animate_ml_widget.setStyleSheet(
+            """
+            QFrame#animate_ml_controls {
+                border: 2px solid rgb(125, 125, 125);
+                border-radius: 5px; 
+                padding: 0px;
+                margin: 0px;
+            }
+            """
+        )
+        self.animate_ml_widget.setFixedWidth(72)
+        self.animate_ml_widget.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+        )
+
+        _btn = StyleButton("\n".join(list("ANIMATE")), parent=self.animate_ml_widget)
+        _btn.setFixedWidth(44)
+        _btn.setFixedHeight(130)
+        _font = _btn.font()
+        _font.setBold(True)
+        _btn.setFont(_font)
+        self.animate_ml_btn = _btn
+
+        _btn = StyleButton("\n".join(list("CLEAR")), parent=self.animate_ml_widget)
+        _btn.setFixedWidth(44)
+        _btn.setFixedHeight(100)
+        _font = _btn.font()
+        _font.setBold(True)
+        _btn.setFont(_font)
+        self.animate_ml_clear_btn = _btn
 
         # non-widget initialization
 
@@ -163,6 +197,23 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self.layer_move_up_btn.clicked.connect(self._layer_list_item_move_up)
         self.layer_move_down_btn.clicked.connect(self._layer_list_item_move_down)
+
+        self.mpl_canvas.animateMotionListFinished.connect(
+            self._animate_motion_list_finished
+        )
+        self.mpl_canvas.animateMotionListCleared.connect(
+            self._animate_motion_list_finished
+        )
+        self.mpl_canvas.animateMotionListStarted.connect(
+            self._animate_motion_list_btn_txt_to_pause
+        )
+        self.mpl_canvas.animateMotionListPaused.connect(
+            self._animate_motion_list_btn_txt_to_animate
+        )
+        self.animate_ml_btn.clicked.connect(self._animate_motion_list)
+        self.animate_ml_clear_btn.clicked.connect(
+            self.mpl_canvas.animate_motion_list_clear
+        )
 
     def _define_layout(self):
         #
@@ -259,15 +310,44 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         return _widget
 
     def _define_right_area_widget(self):
-        _widget = QWidget(parent=self)
-        _widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        _txt = QLabel("Motion\nList\nAnimate", parent=self.animate_ml_widget)
+        _txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _animate_title = _txt
 
-        layout = QVBoxLayout(_widget)
+        animate_layout = QVBoxLayout()
+        animate_layout.setContentsMargins(8, 4, 8, 8)
+        animate_layout.addWidget(_animate_title)
+        animate_layout.addSpacing(4)
+        animate_layout.addWidget(
+            self.animate_ml_btn,
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        animate_layout.addWidget(
+            self.animate_ml_clear_btn,
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        animate_layout.addStretch()
+        self.animate_ml_widget.setLayout(animate_layout)
+
+        side_control_layout = QVBoxLayout()
+        side_control_layout.setContentsMargins(0, 0, 0, 0)
+        side_control_layout.addWidget(self.animate_ml_widget)
+        side_control_layout.addStretch()
+
+        plot_layout = QHBoxLayout()
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.addLayout(side_control_layout)
+        plot_layout.addWidget(self.mpl_canvas)
+
+        layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.mpl_canvas)
+        layout.addLayout(plot_layout)
         layout.addWidget(self._define_params_widget())
         layout.addStretch(1)
 
+        _widget = QWidget(parent=self)
+        _widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        _widget.setLayout(layout)
         return _widget
 
     def _define_motion_space_layout(self):
@@ -846,6 +926,22 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.update_layer_list_box()
         self.update_layer_ml_combine_toggle()
         self.update_canvas()
+
+    def _animate_motion_list(self):
+        _btn_text = self.animate_ml_btn.text().replace("\n", "")
+        if _btn_text == "PAUSE":
+            self.mpl_canvas.animate_motion_list_pause()
+        else:
+            self.mpl_canvas.animate_motion_list()
+
+    def _animate_motion_list_btn_txt_to_animate(self):
+        self.animate_ml_btn.setText("\n".join(list("ANIMATE")))
+
+    def _animate_motion_list_btn_txt_to_pause(self):
+        self.animate_ml_btn.setText("\n".join(list("PAUSE")))
+
+    def _animate_motion_list_finished(self):
+        self.animate_ml_btn.setText("\n".join(list("ANIMATE")))
 
     def _exclusion_configure_new(self):
         if not self._params_widget.isHidden():
@@ -1516,9 +1612,9 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         if layers is not None:
             mb_config["layers"] = list(layers.values())
 
-        self.logger.info(f"space looks like : {mb_config['space']}")
-        self.logger.info(f"exclusion look like : {mb_config['exclusions']}")
-        self.logger.info(f"layer looks like : {mb_config['layers']}")
+        self.logger.info(f"space looks like : {mb_config.get('space', None)}")
+        self.logger.info(f"exclusion look like : {mb_config.get('exclusions', None)}")
+        self.logger.info(f"layer looks like : {mb_config.get('layers', None)}")
 
         self._mb = MotionBuilder(**mb_config)
         self.mpl_canvas.link_motion_builder(self._mb)
