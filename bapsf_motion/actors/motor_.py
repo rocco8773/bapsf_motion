@@ -197,6 +197,12 @@ class Motor(EventActor):
         is activated when energized, 2 indicates limit is activated
         when de-energized, and 3 indicates no limits. (DEFAULT: ``1``)
 
+    current : `float`, optional
+        A value between 0 (non-inclusive) and 1 (inclusive) which
+        indicates what the motor current should be set to as a fraction
+        of the max allowed current ``motor["DEFAULTS"]["max_current"]``.
+        (DEFUALT: ``0.8``)
+
     name: `str`, optional
         Name the motor.  If `None`, then the name will be automatically
         generated. (DEFAULT: `None`)
@@ -544,6 +550,7 @@ class Motor(EventActor):
         *,
         ip: str,
         limit_mode: int = None,
+        current: float = 0.8,
         name: str = None,
         logger: logging.Logger = None,
         loop: asyncio.AbstractEventLoop = None,
@@ -557,6 +564,8 @@ class Motor(EventActor):
         self._motor = self._motor_defaults.copy()
         self._status = self._status_defaults.copy()
         self._limit_mode = limit_mode
+        if isinstance(current, float) and 0.0 < current <= 1.0:
+            self._motor["DEFAULTS"]["current"] = current
 
         # simple signal to tell handlers that _status changed
         self.status_changed = SimpleSignal()
@@ -687,8 +696,8 @@ class Motor(EventActor):
                 "accel": 25,
                 "decel": 25,
                 "idle_current": 0.3,  # 30% of current
-                "current": 4.0,  # 4.0 amps
-                "max_idle_current": .9,  # 90% of current
+                "current": 0.8,  # 80% of max_current (4.0 amps)
+                "max_idle_current": 0.9,  # 90% of current
                 "max_current": 5.0  # 5 amps
             },
             "speed": None,
@@ -770,6 +779,10 @@ class Motor(EventActor):
         # set a slower speed
         self.send_command("speed", 4.0)
         self.send_command("jog_speed", 4.0)
+
+        # set currents
+        self.send_command("set_current", self.motor["DEFAULTS"]["current"])
+        self.send_command("set_idle_current", self.motor["DEFAULTS"]["idle_current"])
 
     def _read_and_set_protocol(self):
         """
@@ -874,6 +887,7 @@ class Motor(EventActor):
             "name": self.name,
             "ip": self.ip,
             "limit_mode": self.motor["define_limits"],
+            "current": self.motor["DEFAULTS"]["current"],
         }
     config.__doc__ = EventActor.config.__doc__
 
@@ -1906,7 +1920,8 @@ class Motor(EventActor):
         """
         Reset running and idle currents to their default values.
         """
-        curr = self._motor["DEFAULTS"]["current"]
+        max_curr = self._motor["DEFAULTS"]["max_current"]
+        curr = self._motor["DEFAULTS"]["current"] * max_curr
         new_ic = self._motor["DEFAULTS"]["idle_current"] * curr
 
         self.send_command("current", curr)
