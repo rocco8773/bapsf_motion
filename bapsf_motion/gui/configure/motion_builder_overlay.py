@@ -66,6 +66,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._mb = None
 
         self._space_input_widgets = {}  # type: Dict[str, Dict[str, QLineEditSpecialized]]
+        self._mpl_canvas_full_draw = True
 
         # _param_inputs:
         #     dictionary of input parameters for instantiating an exclusion or
@@ -916,6 +917,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
     # -- WIDGET INTERACTION FUNCTIONALITY --
 
+    @Slot()
     def _config_changed_handler(self):
         # Note: none of the methods executed here should cause a
         #       configChanged event
@@ -927,6 +929,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self.update_layer_ml_combine_toggle()
         self.update_canvas()
 
+    @Slot()
     def _animate_motion_list(self):
         _btn_text = self.animate_ml_btn.text().replace("\n", "")
         if _btn_text == "PAUSE":
@@ -934,15 +937,19 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         else:
             self.mpl_canvas.animate_motion_list()
 
+    @Slot()
     def _animate_motion_list_btn_txt_to_animate(self):
         self.animate_ml_btn.setText("\n".join(list("ANIMATE")))
 
+    @Slot()
     def _animate_motion_list_btn_txt_to_pause(self):
         self.animate_ml_btn.setText("\n".join(list("PAUSE")))
 
+    @Slot()
     def _animate_motion_list_finished(self):
         self.animate_ml_btn.setText("\n".join(list("ANIMATE")))
 
+    @Slot()
     def _exclusion_configure_new(self):
         if not self._params_widget.isHidden():
             self._hide_and_clear_params_widget()
@@ -974,6 +981,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._refresh_params_widget()
         self._show_params_widget()
 
+    @Slot()
     def _exclusion_modify_existing(self):
         item = self.exclusion_list_box.currentItem()
         name = self._get_layer_name_from_list_name(item.text())
@@ -1026,6 +1034,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._refresh_params_widget()
         self._show_params_widget()
 
+    @Slot()
     def _exclusion_remove_from_mb(self):
         ex_row = self.exclusion_list_box.currentRow()
         ex = self.exclusion_list_box.takeItem(ex_row)
@@ -1042,11 +1051,13 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self.configChanged.emit()
 
+    @Slot()
     def _hide_and_clear_params_widget(self):
         self._params_field_widget.setEnabled(False)
         self._params_widget.hide()
         self._param_inputs = {}
 
+    @Slot()
     def _layer_configure_new(self):
         if not self._params_widget.isHidden():
             self._hide_and_clear_params_widget()
@@ -1062,6 +1073,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._refresh_params_widget()
         self._show_params_widget()
 
+    @Slot()
     def _layer_list_item_move_up(self):
         item = self.layer_list_box.currentItem()
         if item is None:
@@ -1087,9 +1099,11 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         layer = self.mb.layers.pop(current_index)  # noqa
         self.mb.layers.insert(move_to_index, layer)
         self.mb.generate()
+        self._mpl_canvas_full_draw = False
         self.configChanged.emit()
         self.layer_list_box.setCurrentRow(move_to_index)
 
+    @Slot()
     def _layer_list_item_move_down(self):
         item = self.layer_list_box.currentItem()
         if item is None:
@@ -1115,9 +1129,11 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         layer = self.mb.layers.pop(current_index)  # noqa
         self.mb.layers.insert(move_to_index, layer)
         self.mb.generate()
+        self._mpl_canvas_full_draw = False
         self.configChanged.emit()
         self.layer_list_box.setCurrentRow(move_to_index)
 
+    @Slot()
     def _layer_modify_existing(self):
         item = self.layer_list_box.currentItem()
         name = self._get_layer_name_from_list_name(item.text())
@@ -1148,6 +1164,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._refresh_params_widget()
         self._show_params_widget()
 
+    @Slot()
     def _layer_remove_from_mb(self):
         ly_row = self.layer_list_box.currentRow()
         item = self.layer_list_box.takeItem(ly_row)
@@ -1163,6 +1180,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         # TODO: remove params_widget if the removed exclusion is currently
         #       populating the params_widget
 
+        self._mpl_canvas_full_draw = False
         self.configChanged.emit()
 
     def _refresh_params_combo_box(
@@ -1233,6 +1251,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self._validate_inputs()
 
+    @Slot()
     def _refresh_params_widget_from_combo_box_change(self):
         self._param_inputs = {}
         self._refresh_params_widget()
@@ -1241,6 +1260,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._params_field_widget.setEnabled(True)
         self._params_widget.show()
 
+    @Slot()
     def _toggle_layer_to_motionlist_scheme(self):
         if not isinstance(self.mb, MotionBuilder):
             return
@@ -1248,6 +1268,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _scheme = "merge" if self.layer_ml_combine_toggle.isChecked() else "sequential"
         self.logger.info(f"Toggling motion list scheme to {_scheme}.")
         self.mb.layer_to_motionlist_scheme = _scheme
+        self._mpl_canvas_full_draw = False
         self.configChanged.emit()
 
     @Slot(object)
@@ -1461,16 +1482,21 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
     def change_validation_state(self, valid: bool = False):
         self.params_add_btn.setEnabled(valid)
 
+    @Slot()
     def exclusion_list_box_set_btn_enable(self, enable=True):
         self.edit_ex_btn.setEnabled(enable)
         self.remove_ex_btn.setEnabled(enable)
 
+    @Slot()
     def layer_list_box_set_btn_enable(self, enable=True):
         self.edit_ly_btn.setEnabled(enable)
         self.remove_ly_btn.setEnabled(enable)
 
     def update_canvas(self):
-        self.mpl_canvas.update_canvas()
+        if self._mpl_canvas_full_draw:
+            self.mpl_canvas.update_canvas()
+        else:
+            self.mpl_canvas.update_motion_list()
 
     def update_exclusion_list_box(self):
         self.logger.info("Updating Exclusion List Box")
@@ -1513,6 +1539,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
     # -- NORMAL METHODS --
 
+    @Slot()
     def _add_to_mb(self):
         _inputs = self._param_inputs.copy()
         _type = _inputs.pop("_type")
@@ -1527,9 +1554,11 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             self.mb.add_exclusion(_type, **_inputs)
         elif _name == "New Layer":
             self.mb.add_layer(_type, **_inputs)
+            self._mpl_canvas_full_draw = False
         else:
             self.mb.remove_layer(_name)
             self.mb.add_layer(_type, **_inputs)
+            self._mpl_canvas_full_draw = False
 
         self._hide_and_clear_params_widget()
         self.configChanged.emit()

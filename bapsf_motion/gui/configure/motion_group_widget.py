@@ -19,7 +19,16 @@ os.environ["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
 import pygame  # noqa
 
 from abc import abstractmethod
-from PySide6.QtCore import Qt, Signal, Slot, QRunnable, QSize, QThreadPool, QObject
+from PySide6.QtCore import (
+    QObject,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QDoubleValidator, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -230,6 +239,7 @@ class PyGameJoystickRunner(QRunnable):
         self.logger.info("PyGame loop ended.")
         self.run_shutdown()
 
+    @Slot()
     def run_shutdown(self):
         if self.run_loop:
             self.quit()
@@ -310,6 +320,11 @@ class AxisControlWidget(QWidget):
 
         self._mg = None
         self._axis_index = None
+
+        self._update_display_interval = 250  # in msec
+        self._update_display_timer = QTimer()
+        self._update_display_timer.setSingleShot(True)
+        self._display_timer_issue_new_single_shot = False
 
         if axis_display_mode not in ("interactive", "readonly"):
             self._logger.info(
@@ -406,6 +421,10 @@ class AxisControlWidget(QWidget):
         self._connect_signals()
 
     def _connect_signals(self):
+        self._update_display_timer.timeout.connect(
+            self._update_display_of_axis_status
+        )
+
         self.jog_forward_btn.clicked.connect(self.jog_forward)
         self.jog_backward_btn.clicked.connect(self.jog_backward)
         self.zero_btn.clicked.connect(self._zero_axis)
@@ -415,6 +434,7 @@ class AxisControlWidget(QWidget):
         )
         self.enable_btn.clicked.connect(self._set_motor_enabled_state)
         self.movementStopped.connect(self._disable_motor)
+        self.movementStopped.connect(self._update_display_of_axis_status)
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -563,10 +583,12 @@ class AxisControlWidget(QWidget):
         delta_str = self.jog_delta_label.text()
         return float(delta_str)
 
+    @Slot()
     def jog_forward(self):
         pos = self.position.value + self._get_jog_delta()
         self._move_to(pos)
 
+    @Slot()
     def jog_backward(self):
         pos = self.position.value - self._get_jog_delta()
         self._move_to(pos)
@@ -591,6 +613,7 @@ class AxisControlWidget(QWidget):
 
         self.target_position_label.setText(_txt)
 
+    @Slot()
     def _disable_motor(self):
         self.axis.send_command("disable")
 
@@ -613,11 +636,25 @@ class AxisControlWidget(QWidget):
         if proceed:
             self.mg.move_to(target_pos)
 
+    @Slot()
     def _set_motor_enabled_state(self):
         current_enabled_state = self.axis.motor.status["enabled"]
         cmd_string = "disable" if current_enabled_state else "enable"
         self.axis.send_command(cmd_string)
 
+    @Slot()
+    def update_display_of_axis_status(self):
+        timer_active = self._update_display_timer.isActive()
+        if timer_active:
+            self._display_timer_issue_new_single_shot = True
+        else:
+            self._update_display_of_axis_status()
+
+            # start a timed update to start update frequency control
+            self._update_display_timer.start(self._update_display_interval)
+            self._display_timer_issue_new_single_shot = False
+
+    @Slot()
     def _update_display_of_axis_status(self):
         if self._mg.terminated:
             return
@@ -630,22 +667,33 @@ class AxisControlWidget(QWidget):
         if self.target_position_label.text() == "":
             self.update_target_position_display(pos)
 
-        limits = self.axis.motor.status["limits"]
+        _motor_status = self.axis.motor.status
+
+        limits = _motor_status["limits"]
         self.limit_fwd_btn.set_valid(state=limits["CW"])
         self.limit_bwd_btn.set_valid(state=limits["CCW"])
 
-        enabled_state = self.axis.motor.status["enabled"]
+        enabled_state = _motor_status["enabled"]
         self.enable_btn.setChecked(enabled_state)
 
+        if self._display_timer_issue_new_single_shot:
+            # start another single shot if update_display_of_axis_status()
+            # was triggered during the wait for the last single shot
+            self._update_display_timer.start(self._update_display_interval)
+            self._display_timer_issue_new_single_shot = False
+
+    @Slot()
     def _validate_jog_value(self):
         _txt = self.jog_delta_label.text()
         val = 0.0 if _txt == "" else float(_txt)
         val = abs(val)
         self.jog_delta_label.setText(f"{val:.2f}")
 
+    @Slot()
     def _validate_target_position_value(self):
         self.targetPositionChanged.emit(self.target_position)
 
+    @Slot()
     def _zero_axis(self):
         self.logger.info(f"Setting zero of axis {self.axis_index}")
         self.mg.set_zero(axis=self.axis_index)
@@ -669,33 +717,35 @@ class AxisControlWidget(QWidget):
         self._axis_index = ax_index
 
         self.axis_name_label.setText(self.axis.name)
-        self.axis.motor.status_changed.connect(self._update_display_of_axis_status)
+        self.axis.motor.status_changed.connect(self.update_display_of_axis_status)
         self.axis.motor.status_changed.connect(self.axisStatusChanged.emit)
         self.axis.motor.movement_started.connect(self._emit_movement_started)
         self.axis.motor.movement_finished.connect(self._emit_movement_finished)
-        self.axis.motor.movement_finished.connect(self._update_display_of_axis_status)
-        self._update_display_of_axis_status()
+        self.axis.motor.movement_finished.connect(self.update_display_of_axis_status)
+        self.update_display_of_axis_status()
 
         self.axisLinked.emit()
 
     def unlink_axis(self):
         if self.axis is not None:
             # self.axis.terminate(delay_loop_stop=True)
-            self.axis.motor.status_changed.disconnect(self._update_display_of_axis_status)
+            self.axis.motor.status_changed.disconnect(self.update_display_of_axis_status)
             self.axis.motor.status_changed.connect(self.axisStatusChanged.emit)
             self.axis.motor.movement_started.connect(self._emit_movement_started)
             self.axis.motor.movement_finished.connect(self._emit_movement_finished)
             self.axis.motor.movement_finished.disconnect(
-                self._update_display_of_axis_status
+                self.update_display_of_axis_status
             )
 
         self._mg = None
         self._axis_index = None
         self.axisUnlinked.emit()
 
+    @Slot()
     def _emit_movement_started(self):
         self.movementStarted.emit(self.axis_index)
 
+    @Slot()
     def _emit_movement_finished(self):
         self.movementStopped.emit(self.axis_index)
 
@@ -715,12 +765,12 @@ class AxisControlWidget(QWidget):
         self.logger.info("Closing AxisControlWidget")
 
         if isinstance(self.axis, Axis):
-            self.axis.motor.status_changed.disconnect(self._update_display_of_axis_status)
+            self.axis.motor.status_changed.disconnect(self.update_display_of_axis_status)
             self.axis.motor.status_changed.disconnect(self.axisStatusChanged.emit)
             self.axis.motor.movement_started.disconnect(self._emit_movement_started)
             self.axis.motor.movement_finished.disconnect(self._emit_movement_finished)
             self.axis.motor.movement_finished.disconnect(
-                self._update_display_of_axis_status
+                self.update_display_of_axis_status
             )
 
         event.accept()
@@ -823,6 +873,7 @@ class DriveBaseController(QWidget):
 
         return target_position
 
+    @Slot()
     def _target_position_changed(self, position):
         self.logger.info(f"DBC target position changed {self.target_position}")
         tpos = self.target_position
@@ -883,6 +934,7 @@ class DriveBaseController(QWidget):
         self._mspace_drive_polarity = None
         self.setEnabled(False)
 
+    @Slot()
     def update_all_axis_displays(self):
         for acw in self._axis_control_widgets:
             if acw.isHidden():
@@ -890,8 +942,9 @@ class DriveBaseController(QWidget):
             # elif acw.axis.is_moving:
             #     continue
 
-            acw._update_display_of_axis_status()
+            acw.update_display_of_axis_status()
 
+    @Slot()
     def disable_motion_buttons(self):
         for acw in self._axis_control_widgets:
             if acw.isHidden():
@@ -899,6 +952,7 @@ class DriveBaseController(QWidget):
 
             acw.disable_motion_buttons()
 
+    @Slot()
     def enable_motion_buttons(self):
         for acw in self._axis_control_widgets:
             if acw.isHidden():
@@ -1116,6 +1170,7 @@ class DriveDesktopController(DriveBaseController):
 
         return layout
 
+    @Slot()
     def _move_to(self):
         target_pos = [
             acw.target_position
@@ -1139,6 +1194,7 @@ class DriveDesktopController(DriveBaseController):
 
         self.moveTo.emit(target_pos)
 
+    @Slot()
     def _toggle_holding_current(self):
         hold_current = not self.hold_current_btn.isChecked()
         if hold_current:
@@ -1337,6 +1393,7 @@ class DriveGameController(DriveBaseController):
 
         return js
 
+    @Slot()
     def refresh_controller_combo(self):
         self.disconnect_controller()
 
@@ -1357,6 +1414,7 @@ class DriveGameController(DriveBaseController):
         else:
             self.controller_combo_widget.setCurrentText("")
 
+    @Slot()
     def connect_controller(self):
         self.logger.info("Connecting controller.")
         self._pygame_joystick_runner = PyGameJoystickRunner(self.joystick)
@@ -1376,6 +1434,7 @@ class DriveGameController(DriveBaseController):
 
         self._thread_pool.start(self._pygame_joystick_runner)
 
+    @Slot()
     def disconnect_controller(self):
         if self._pygame_joystick_runner is None:
             return
@@ -1614,9 +1673,11 @@ class DriveControlWidget(QWidget):
     def target_position(self):
         return self.desktop_controller_widget.target_position
 
+    @Slot()
     def _stop_move(self):
         self.mg.stop()
 
+    @Slot()
     def _switch_stack(self):
         controller = self.controller_combo_box.currentText()
         _w = self.stacked_controller_widget.currentWidget()
@@ -1649,6 +1710,7 @@ class DriveControlWidget(QWidget):
             # should never happen
             pass
 
+    @Slot()
     def _zero_drive(self):
         self.mg.set_zero()
 
@@ -1696,10 +1758,12 @@ class DriveControlWidget(QWidget):
         if self.game_controller_widget is not None:
             self.game_controller_widget.update_all_axis_displays()
 
+    @Slot()
     def _drive_movement_started(self):
         self.controller_combo_box.setEnabled(False)
         self.movementStarted.emit()
 
+    @Slot()
     def _drive_movement_finished(self):
         self.controller_combo_box.setEnabled(True)
         self.movementStopped.emit()
@@ -1809,6 +1873,11 @@ class MGWidget(QWidget):
         self._custom_mb_index = -1
         self._mb_combo_last_index = -1
         self._build_mb_defaults()
+
+        self._update_plot_interval = 200  # in msec
+        self._update_plot_timer = QTimer()
+        self._update_plot_timer.setSingleShot(True)
+        self._plot_timer_issue_new_single_shot = False
 
         # Define TEXT WIDGETS
 
@@ -1998,22 +2067,54 @@ class MGWidget(QWidget):
 
         self.drive_control_widget.movementStarted.connect(self.disable_config_controls)
         self.drive_control_widget.movementStopped.connect(self.enable_config_controls)
+        self.drive_control_widget.movementStopped.connect(
+            self._update_position_in_plot
+        )
         self.drive_control_widget.targetPositionChanged.connect(
             self.mpl_canvas.update_target_position_plot
         )
         self.drive_control_widget.driveStatusChanged.connect(
-            self._update_position_in_plot
+            self.update_position_in_plot
         )
 
         self.done_btn.clicked.connect(self.return_and_close)
         self.discard_btn.clicked.connect(self.close)
 
+        self._update_plot_timer.timeout.connect(
+            self._update_position_in_plot
+        )
+
+    @Slot()
+    def update_position_in_plot(self):
+        if not isinstance(self.mg, MotionGroup) or not self.mg.is_moving:
+            # no position to change since motion group is NOT moving,
+            # to force a position update use _update_position_in_plot()
+            self._plot_timer_issue_new_single_shot = False
+            return
+
+        timer_active = self._update_plot_timer.isActive()
+        if timer_active:
+            self._plot_timer_issue_new_single_shot = True
+        else:
+            self._update_position_in_plot()
+
+            # start a timed update to start update frequency control
+            self._update_plot_timer.start(self._update_plot_interval)
+            self._plot_timer_issue_new_single_shot = False
+
+    @Slot()
     def _update_position_in_plot(self):
         if self.drive_control_widget.isEnabled():
             position = self.drive_control_widget.position
         else:
             position = None
         self.mpl_canvas.update_position_plot(position)
+
+        if self._plot_timer_issue_new_single_shot:
+            # start another single shot if update_position_in_plot() was
+            # triggered during the wait for the last single shot
+            self._update_plot_timer.start(self._update_plot_interval)
+            self._plot_timer_issue_new_single_shot = False
 
     def _define_layout(self):
 
@@ -2344,6 +2445,7 @@ class MGWidget(QWidget):
 
         return self._transform_defaults
 
+    @Slot()
     def _config_changed_handler(self):
         # Note: none of the methods executed here should cause a
         #       configChanged event
@@ -2566,6 +2668,7 @@ class MGWidget(QWidget):
         # set default transform
         self.transform_dropdown.setCurrentIndex(0)
 
+    @Slot()
     def _popup_drive_configuration(self):
         self._overlay_setup(
             DriveConfigOverlay(self.mg, parent=self)
@@ -2578,6 +2681,7 @@ class MGWidget(QWidget):
         self._overlay_widget.show()
         self._overlay_shown = True
 
+    @Slot()
     def _popup_transform_configuration(self):
         self._overlay_setup(
             TransformConfigOverlay(self.mg, parent=self)
@@ -2589,6 +2693,7 @@ class MGWidget(QWidget):
         self._overlay_widget.show()
         self._overlay_shown = True
 
+    @Slot()
     def _popup_motion_builder_configuration(self):
         self._overlay_setup(
             MotionBuilderConfigOverlay(self.mg, parent=self)
@@ -2607,6 +2712,7 @@ class MGWidget(QWidget):
 
         self._overlay_widget = overlay
 
+    @Slot()
     def _overlay_close(self):
         self._overlay_widget.deleteLater()
         self._overlay_widget = None
@@ -2718,6 +2824,7 @@ class MGWidget(QWidget):
         self.mg.replace_motion_builder(_deepcopy_dict(config))
         self.configChanged.emit()
 
+    @Slot()
     def _rerun_drive(self):
         self.logger.info("Restarting the motion group's drive")
 
@@ -2737,6 +2844,8 @@ class MGWidget(QWidget):
 
         target_position = self.drive_control_widget.target_position
         self.drive_control_widget.targetPositionChanged.emit(target_position)
+
+        self._update_position_in_plot()
 
     def _update_drive_dropdown(self):
         if self._custom_drive_index == -1:
@@ -2833,6 +2942,7 @@ class MGWidget(QWidget):
     def _update_target_position(self, target_position: List[float]):
         self.drive_control_widget.set_target_position(target_position)
 
+    @Slot()
     def _rename_motion_group(self):
         self.logger.info("Renaming motion group")
         try:
@@ -3153,6 +3263,7 @@ class MGWidget(QWidget):
 
         self._change_transform(tr_default_config)
 
+    @Slot()
     def disable_config_controls(self):
         self.drive_dropdown.setEnabled(False)
         self.drive_btn.setEnabled(False)
@@ -3163,9 +3274,11 @@ class MGWidget(QWidget):
         self.transform_dropdown.setEnabled(False)
         self.transform_btn.setEnabled(False)
 
+    @Slot()
     def enable_config_controls(self):
         self._validate_motion_group()
 
+    @Slot()
     def return_and_close(self):
         config = self.mg_config
         index = -1 if self._mg_index is None else self._mg_index

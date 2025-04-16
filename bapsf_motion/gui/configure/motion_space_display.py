@@ -9,7 +9,7 @@ import logging
 import numpy as np
 import warnings
 
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtCore import Signal, QTimer, Slot
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout
 from typing import List, Union
@@ -23,7 +23,7 @@ import matplotlib as mpl
 mpl.use("qtagg")  # matplotlib's backend for Qt bindings
 from matplotlib import pyplot as plt
 from matplotlib.collections import PathCollection
-from matplotlib.backend_bases import Event, MouseEvent, PickEvent
+from matplotlib.backend_bases import Event, MouseEvent, PickEvent, DrawEvent
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas  # noqa
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar  # noqa
 
@@ -35,10 +35,6 @@ class MotionSpaceDisplay(QFrame):
     animateMotionListFinished = Signal()
     animateMotionListPaused = Signal()
     animateMotionListCleared = Signal()
-
-    _default_legend_names = [
-        "motion_list", "probe", "position", "target", "insertion_point"
-    ]
 
     _default_legend_names = [
         "motion_list", "probe", "position", "target", "insertion_point"
@@ -81,16 +77,22 @@ class MotionSpaceDisplay(QFrame):
 
         self.setLayout(self._define_layout())
 
+        self._cid_on_draw = None
+        self._draw_all = True
+
         self._mpl_pick_callback_id = None
         self._connect_signals()
 
     def _connect_signals(self):
         self.mbChanged.connect(self.update_canvas)
+        self.targetPositionSelected.connect(self.update_target_position_plot)
+        self.animateMotionListFinished.connect(self.animate_motion_list_pause)
+
+        # matplotlib events
         self._mpl_pick_callback_id = self.mpl_canvas.mpl_connect(
             "pick_event", self.on_pick  # noqa
         )
-        self.targetPositionSelected.connect(self.update_target_position_plot)
-        self.animateMotionListFinished.connect(self.animate_motion_list_pause)
+        self._cid_on_draw = self.mpl_canvas.mpl_connect("draw_event", self.on_draw)  # noqa
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -208,6 +210,7 @@ class MotionSpaceDisplay(QFrame):
             "finished": False,
         }
 
+    @Slot()
     def animate_motion_list_pause(self):
         if self._animate_payload is None:
             return
@@ -217,6 +220,7 @@ class MotionSpaceDisplay(QFrame):
         if not self._animate_payload["finished"]:
             self.animateMotionListPaused.emit()
 
+    @Slot()
     def animate_motion_list_clear(self):
         if self._animate_payload is None:
             return
@@ -238,6 +242,7 @@ class MotionSpaceDisplay(QFrame):
 
         self.animateMotionListCleared.emit()
 
+    @Slot()
     def _update_motion_list_trace(self, *, to_index: int = None):
         if to_index is None and self._animate_payload is None:
             return
@@ -283,6 +288,7 @@ class MotionSpaceDisplay(QFrame):
                     color="black",
                     linewidth=1,
                     label=_label,
+                    animated=True,
                 )
             else:
                 # this is the start and end points
@@ -298,6 +304,7 @@ class MotionSpaceDisplay(QFrame):
                     facecolors="none",
                     edgecolors="black",
                     label=_label,
+                    animated=True,
                 )
 
         self.mpl_canvas.draw()
@@ -311,6 +318,25 @@ class MotionSpaceDisplay(QFrame):
             to_index = self.mb.motion_list.shape[0] - 1
 
         self._animate_payload["index"] = to_index
+
+    def on_draw(self, event: DrawEvent):
+        if self._draw_all:
+            self.mpl_canvas.mpl_disconnect(self._cid_on_draw)
+            self.mpl_canvas.draw()
+            self._cid_on_draw = self.mpl_canvas.mpl_connect("draw_event", self.on_draw)
+            self._draw_all = False
+        else:
+            fig = self.mpl_canvas.figure
+            fig_axes = fig.axes  # type: List[plt.Axes]
+            for ax in fig_axes:
+                artists = ax.get_children()
+                for artist in artists:
+                    if not artist.get_animated():
+                        continue
+
+                    fig.draw_artist(artist)
+
+            self.mpl_canvas.blit(fig.bbox)
 
     def on_pick(self, event: PickEvent):
         if not self.display_target_position:
@@ -365,6 +391,7 @@ class MotionSpaceDisplay(QFrame):
         self.setHidden(True)
         self.mbChanged.emit()
 
+    @Slot()
     def update_canvas(self):
         if not isinstance(self.mb, MotionBuilder):
             self.setHidden(True)
@@ -397,6 +424,7 @@ class MotionSpaceDisplay(QFrame):
         else:
             target_position = None
 
+        self._draw_all = True
         fig = self.mpl_canvas.figure
         fig.clear()
         ax = fig.gca()
@@ -457,6 +485,8 @@ class MotionSpaceDisplay(QFrame):
             self.animate_motion_list()
             self.blockSignals(False)
 
+        self.logger.info("Re-draw DONE.")
+
     def update_legend(self):
         _plotted_layers = (
             [] if self._motionlist_plot_names is None else self._motionlist_plot_names
@@ -483,6 +513,7 @@ class MotionSpaceDisplay(QFrame):
         self.mpl_canvas.draw()
 
     def update_motion_list(self):
+        self.animate_motion_list_clear()
 
         # plot the individual point layers (if join scheme is sequential)
         _layer_names = [layer.name for layer in self.mb.layers]
@@ -546,6 +577,7 @@ class MotionSpaceDisplay(QFrame):
                     facecolors=facecolors[color_index],
                     edgecolors=edgecolor,
                     label=_label,
+                    animated=True,
                 )
 
                 color_index += 1
@@ -589,11 +621,13 @@ class MotionSpaceDisplay(QFrame):
                 edgecolors="black",
                 picker=True,
                 label=_label,
+                animated=True,
             )
 
         self.update_legend()
         self.mpl_canvas.draw()
 
+    @Slot(list)
     def update_target_position_plot(self, position):
         self.logger.info(f"Drawing target position {position}")
 
@@ -629,13 +663,14 @@ class MotionSpaceDisplay(QFrame):
                 facecolors="none",
                 edgecolors="blue",
                 label=_label,
+                animated=True,
             )
 
         self.update_legend()
         self.mpl_canvas.draw()
 
     def update_position_plot(self, position):
-        self.logger.debug(f"Drawing target position {position}")
+        self.logger.info(f"Drawing position {position}")
 
         if not self.display_position:
             position = None
@@ -669,6 +704,7 @@ class MotionSpaceDisplay(QFrame):
                 facecolors="none",
                 edgecolors="black",
                 label=_label,
+                animated=True,
             )
 
         # add probe shaft (line from insertion to position
@@ -710,6 +746,7 @@ class MotionSpaceDisplay(QFrame):
                 color="black",
                 linewidth=2,
                 label=_label,
+                animated=True,
             )
 
         self.update_legend()
