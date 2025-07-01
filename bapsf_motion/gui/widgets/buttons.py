@@ -39,7 +39,7 @@ class StyleButton(QPushButton):
             "background-color": "rgb(163, 163, 163)",
             "color": "rgb(50, 50, 50)",
         }
-        self._default_hover_style = {}
+        self._default_hover_style = {"border": "2px solid rgb(30, 60, 90)"}
         self._default_pressed_style = {"background-color": "rgb(111, 111, 111)"}
         self._default_checked_style = {}
         self._default_disabled_style = {"color": "rgb(123, 123, 123)"}
@@ -95,16 +95,24 @@ class StyleButton(QPushButton):
         # color.setAlpha(100)
         # disable_string = f"color: rgba{color.getRgb()}"
 
+        object_name = self.objectName()
+        if object_name is None or not isinstance(object_name, str):
+            object_name = ""
+        elif object_name != "":
+            object_name = f"#{object_name}"
+
+        header = f"{_cls_name}{object_name}"
+
         return f"""
-        {_cls_name} {{ {_base} }}
+        {header} {{ {_base} }}
 
-        {_cls_name}:hover {{ {_hover}  }}
+        {header}:hover {{ {_hover}  }}
 
-        {_cls_name}:pressed {{ {_pressed} }}
+        {header}:pressed {{ {_pressed} }}
 
-        {_cls_name}:checked {{ {_checked} }}
+        {header}:checked {{ {_checked} }}
         
-        {_cls_name}:disabled {{ {_disabled} }}
+        {header}:disabled {{ {_disabled} }}
         """
 
     @property
