@@ -35,6 +35,7 @@ import qtawesome as qta
 from bapsf_motion.actors import MotionGroup
 from bapsf_motion.gui.configure import motion_group_widget as mgw
 from bapsf_motion.gui.configure.bases import _ConfigOverlay
+from bapsf_motion.gui.configure.helpers import read_parameter_hints
 from bapsf_motion.gui.configure.motion_space_display import MotionSpaceDisplay
 from bapsf_motion.gui.widgets import (
     DiscardButton,
@@ -67,6 +68,10 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
 
         self._space_input_widgets = {}  # type: Dict[str, Dict[str, QLineEditSpecialized]]
         self._mpl_canvas_full_draw = True
+
+        _parameter_hints = read_parameter_hints()
+        self._parameter_hints_layer = _parameter_hints.pop("layer", None)
+        self._parameter_hints_exclusion = _parameter_hints.pop("exclusion", None)
 
         # _param_inputs:
         #     dictionary of input parameters for instantiating an exclusion or
@@ -277,6 +282,18 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             return self.mg.mb
 
         return self._mb
+
+    @property
+    def parameter_hints_layer(self):
+        if self._parameter_hints_layer is None:
+            self._parameter_hints_layer = dict()
+        return self._parameter_hints_layer
+
+    @property
+    def parameter_hints_exclusion(self):
+        if self._parameter_hints_exclusion is None:
+            self._parameter_hints_exclusion = dict()
+        return self._parameter_hints_exclusion
 
     # -- LAYOUT AND WIDGET DEFINITIONS --
 
@@ -614,9 +631,15 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             if ex_or_ly == "exclusion"
             else self.layer_registry
         )
+        _hints = (
+            self.parameter_hints_exclusion
+            if ex_or_ly == "exclusion"
+            else self.parameter_hints_layer
+        )
+        _hints = None if _type not in _hints else _hints[_type]
 
         self._param_inputs.update(
-            {"_type": _type, "_registry": _registry}
+            {"_type": _type, "_registry": _registry, "_hints": _hints}
         )
 
         params = _registry.get_input_parameters(_type)
@@ -645,7 +668,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         ii = 0
         _row_height = 24
         for key, val in params.items():
-            # determine the seeded value for the transform input
+            # determine the seed/default value for the layer or exclusion input
             if key in self._param_inputs:
                 default = self._param_inputs[key]
             elif val["param"].default is not val["param"].empty:
@@ -654,6 +677,9 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             else:
                 default = None
                 self._param_inputs[key] = default
+
+            # determine parameter hint for layer or exclusion input
+            _hint = None if (_hints is None or key not in _hints) else _hints[key]
 
             _txt = QLabel(key, parent=_widget)
             _txt.setFixedHeight(_row_height)
@@ -689,6 +715,8 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
             font.setPointSize(14)
             _txt.setFont(font)
             _input = _txt
+            if _hint is not None:
+                _input.setPlaceholderText(_hint)
             _input.editingFinishedPayload.connect(self._update_param_inputs)
 
             _txt = QLabel("", parent=_widget)
@@ -1320,7 +1348,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         self._param_inputs[param] = _input
 
         self.logger.info(
-            f"Updating input parameter {param} to {_input} for transformation "
+            f"Updating input parameter {param} to {_input} for layer/exclusion "
             f"type {_type}."
         )
 
@@ -1426,6 +1454,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _inputs = self._param_inputs.copy()
         _type = _inputs.pop("_type")
         _registry = _inputs.pop("_registry")
+        _hints = _inputs.pop("_hints")
         params = _registry.get_input_parameters(_type)
 
         for key, val in _inputs.items():
@@ -1547,6 +1576,7 @@ class MotionBuilderConfigOverlay(_ConfigOverlay):
         _inputs = self._param_inputs.copy()
         _type = _inputs.pop("_type")
         _registry = _inputs.pop("_registry")
+        _hints = _inputs.pop("_hints")
         _name = self.params_label.text()
 
         if _registry is self.exclusion_registry and _name == "New Exclusion":
