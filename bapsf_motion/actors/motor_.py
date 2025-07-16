@@ -871,8 +871,8 @@ class Motor(EventActor):
         #       ip argument
         if self._motor["ip"] is not None:
             self.logger.warning(
-                "The motor's IP address can only be defined at object"
-                " instantiation."
+                "The motor's IP address can only be defined at object "
+                "instantiation."
             )
             return
 
@@ -1032,8 +1032,8 @@ class Motor(EventActor):
                 socket_ip, socket_port = self.socket.getpeername()
             except OSError as err:
                 self.logger.error(
-                    "Appears the socket is bad.  It was likely disconnected by"
-                    " the sever or the client.",
+                    "Appears the socket is bad.  It was likely disconnected by "
+                    "the sever or the client.",
                     exc_info=err,
                 )
             else:
@@ -1116,7 +1116,7 @@ class Motor(EventActor):
 
         except (ConnectionError, TimeoutError, OSError) as err:
             # Note: if the Ack/Nack protocol is not properly set (see method
-            #       read_and_set_protocol(), then TimeoutErrors can occur
+            #       read_and_set_protocol()), then TimeoutErrors can occur
             #       even if the connection is still established.
             #
             self.logger.error(
@@ -1328,7 +1328,7 @@ class Motor(EventActor):
             # command and motor buffer have come out of sync
             #
             # Note:  this will not be an infinite loop, if the buffer
-            #        size is zero and we missed the response, then
+            #        size is zero, and we missed the response, then
             #        self._recv will issue a TimeoutError
 
             recv = self._recv()
@@ -1587,6 +1587,7 @@ class Motor(EventActor):
             self.logger.error(f"Motor returned alarm(s): {alarm_message}")
 
         alarm_status = {
+            "alarm": rtn != "0000",
             "alarm_message": alarm_message,
             "limits": {
                 "CCW": True if 2 in codes else False,
@@ -1676,26 +1677,70 @@ class Motor(EventActor):
         except AttributeError:
             pass
 
+    def _moveable(self) -> bool:
+        """
+        Return `True` if a movement command can be sent to the motor.
+        """
+        if self.is_moving:
+            return False
+
+        if self.status["alarm"]:
+            self.send_command("alarm_reset")
+            alarm_status = self.retrieve_motor_alarm()
+            alarm_messages = alarm_status["alarm_message"].split("::")
+
+            self.logger.info(f"Alarm status: {alarm_status}")
+            if (
+                self._lost_connection(alarm_status)
+                or len(alarm_messages) > 1
+                or (
+                    len(alarm_messages) == 1
+                    and not alarm_status["limits"]["CCW"]
+                    and not alarm_status["limits"]["CW"]
+                )
+            ):
+                # lost connection or a non-limit alarm is active
+                return False
+
+        # alarm was successfully reset
+        # or only the forward/backward limit is hit
+        # or the motor is idle
+        return True
+
     def continuous_jog(self, direction="forward"):
         """
         Start a continuous jog.  The motor will not stop until
         commanded to.
         """
+        if direction not in ["forward", "backward"]:
+            self.logger.error(
+                "ValueError: Argument `direction` value must be 'forward' or 'backward'."
+            )
+            return
+
+        if not self._moveable():
+            alarm_msg = self.status["alarm_message"]
+            self.logger.error(
+                f"Motor alarm active, could not move. Alarm Status: {alarm_msg}"
+            )
+            return
+
         if self.status["alarm"]:
-            self.send_command("alarm_reset")
-            alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
+            # on a limit switch, check if move direction is off limit
 
-            if self._lost_connection(alarm_msg) or alarm_msg["alarm_message"]:
-                self.logger.error(
-                    f"Motor alarm could not be reset. -- {alarm_msg}"
+            if direction == "forward" and self.status["limits"]["CW"]:
+                self.logger.warning(
+                    "Motor can NOT move forward, currently on forward limit."
                 )
-                return None
-
-        self.enable()
+            elif direction == "backward" and self.status["limits"]["CCW"]:
+                self.logger.warning(
+                    "Motor can NOT move backward, currently on backward limit."
+                )
 
         # The direction of the commence_jogging is defined by the side
         # of the target_distance (DI) command
         direction = -1 if direction == "backward" else 1
+        self.enable()
         self.send_command("target_distance", direction)
         self.send_command("commence_jogging")
 
@@ -1712,15 +1757,25 @@ class Motor(EventActor):
         pos: int
             Position (in steps) for the motor to move to.
         """
-        if self.status["alarm"]:
-            self.send_command("alarm_reset")
-            alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
+        if not self._moveable():
+            alarm_msg = self.status["alarm_message"]
+            self.logger.error(
+                f"Motor alarm active, could not move. Alarm Status: {alarm_msg}"
+            )
+            return
 
-            if self._lost_connection(alarm_msg) or alarm_msg["alarm_message"]:
-                self.logger.error(
-                    f"Motor alarm could not be reset. -- {alarm_msg}"
+        if self.status["alarm"]:
+            # on a limit switch, check if move direction is off limit
+            delta = pos - self.position.value
+
+            if delta > 0 and self.status["limits"]["CW"]:
+                self.logger.warning(
+                    "Motor can NOT move forward, currently on forward limit."
                 )
-                return
+            elif delta < 0 and self.status["limits"]["CCW"]:
+                self.logger.warning(
+                    "Motor can NOT move backward, currently on backward limit."
+                )
 
         # Note:  The Applied Motion Command Reference pdf states for
         #        ethernet enabled motors the position should not be
@@ -1734,26 +1789,23 @@ class Motor(EventActor):
 
     def move_off_limit(self):
         """
-        Try to move the motor off of a CW or CCW limit switch.
+        Move the motor off of a CW (forward) or CCW (backward) limit
+        switch.
         """
 
-        # TODO: There could still be a more efficient and safe way to do
-        #       this...should contemplate
-
-        # are we on a limit?
-        if not any(self.status["limits"].values()):
-            self.logger.debug(f"Motor is NOT on a limit, doing nothing.")
-            return
-        elif all(self.status["limits"].values()):
-            self.logger.error(
-                "Both CW and CCW limits activated, can not do anything."
-            )
+        alarm_status = self.retrieve_motor_alarm()
+        if (
+            not alarm_status["alarm"]
+            or (not alarm_status["limits"]["CCW"] and not alarm_status["limits"]["CW"])
+        ):
+            # not on limits
             return
 
         off_direction = -1 if self.status["limits"]["CW"] else 1
 
         counts = 1
         on_limits = any(self.status["limits"].values())
+        switched_directions = False
         while on_limits:
 
             if counts > 10:
@@ -1772,23 +1824,32 @@ class Motor(EventActor):
 
             pos = pos.value
             move_to_pos = pos + off_direction * 0.5 * self.steps_per_rev.value
-
-            # disable limit alarm so the motor can be moved
-            self.logger.warning("Moving off limits - disable limits")
-            self.send_command("define_limits", 3)
-            self.send_command("alarm_reset")
-
             self.move_to(move_to_pos)
 
-            self.logger.warning("Moving off limits - enable limits")
-            self.send_command("define_limits", self.motor["define_limits"])
-            self.sleep(4 * self.heartrate.ACTIVE)
+            # wait until motor stops moving
+            self.sleep(2 * self.heartrate.ACTIVE)
+            while self.is_moving:
+                self.sleep(self.heartrate.ACTIVE)
 
             alarm_msg = self.retrieve_motor_alarm(defer_status_update=True)
             if self._lost_connection(alarm_msg):
                 self.logger.error("Unable to move off limit due to a lost connection.")
                 break
             on_limits = any(alarm_msg["limits"].values())
+
+            # reverse direction if motor did not move
+            if np.isclose(self.position.value, pos):
+                if switched_directions:
+                    # off direction has already flipped once
+                    self.logger.warning(
+                        "Attempted to move off limit in both directions and "
+                        "was unsuccessful."
+                    )
+                    break
+
+                # no movement happened, try reversing direction
+                off_direction = -off_direction
+                switched_directions = True
 
             counts += 1
 
@@ -1861,8 +1922,8 @@ class Motor(EventActor):
             return
         elif ic == self.ack_flags.MALFORMED:
             self.logger.error(
-                "Unable to set current due to the motor response not matching"
-                " the expected response."
+                "Unable to set current due to the motor response not matching "
+                "the expected response."
             )
             return
         new_ic = np.min(
@@ -1906,8 +1967,8 @@ class Motor(EventActor):
             return
         elif curr == self.ack_flags.MALFORMED:
             self.logger.error(
-                "Unable to set idle current due to the motor response not"
-                " matching the expected response."
+                "Unable to set idle current due to the motor response not "
+                "matching the expected response."
             )
             return
         new_ic = percent * curr
@@ -1947,8 +2008,8 @@ class Motor(EventActor):
             return
         elif ic == self.ack_flags.MALFORMED:
             self.logger.error(
-                "Unable to confirm set position due to the motor response"
-                " not matching the expected response."
+                "Unable to confirm set position due to the motor response "
+                "not matching the expected response."
             )
             return
 
@@ -1958,8 +2019,8 @@ class Motor(EventActor):
             return
         elif curr == self.ack_flags.MALFORMED:
             self.logger.error(
-                "Unable to confirm set position due to motor response"
-                " not matching the expected response."
+                "Unable to confirm set position due to motor response "
+                "not matching the expected response."
             )
             return
 
