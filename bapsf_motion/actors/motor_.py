@@ -2,7 +2,7 @@
 Module for functionality focused around the
 `~bapsf_motion.actors.motor_.Motor` actor class.
 """
-__all__ = ["do_nothing", "CommandEntry", "Motor"]
+__all__ = ["do_nothing", "CommandEntry", "Motor", "MotorSignals"]
 __actors__ = ["Motor"]
 
 import asyncio
@@ -177,6 +177,40 @@ class CommandEntry(UserDict):
         command, then this is the name of the class method to be called.
         """
         return self._command
+
+
+class MotorSignals:
+    r"""
+    Class that defines all the `~bapsf_motion.utils.SimpleSignal`\ 's
+    used by `Motor`.
+    """
+    def __init__(self):
+        self._status_changed = SimpleSignal()
+        self._movement_started = SimpleSignal()
+        self._movement_finished = SimpleSignal()
+
+    @property
+    def status_changed(self) -> SimpleSignal:
+        """
+        `~bapsf_motion.utils.SimpleSignal` emitted when the motor
+        `~Motor.status` is changes."""
+        return self._status_changed
+
+    @property
+    def movement_started(self) -> SimpleSignal:
+        """
+        `~bapsf_motion.utils.SimpleSignal` emitted when the motor
+        movement is started.
+        """
+        return self._movement_started
+
+    @property
+    def movement_finished(self) -> SimpleSignal:
+        """
+        `~bapsf_motion.utils.SimpleSignal` emitted when the motor
+        movement is completed.
+        """
+        return self._movement_finished
 
 
 class Motor(EventActor):
@@ -568,9 +602,7 @@ class Motor(EventActor):
             self._motor["DEFAULTS"]["current"] = current
 
         # simple signal to tell handlers that _status changed
-        self.status_changed = SimpleSignal()
-        self.movement_started = SimpleSignal()
-        self.movement_finished = SimpleSignal()
+        self._signals = MotorSignals()
 
         self.ip = ip
 
@@ -714,6 +746,16 @@ class Motor(EventActor):
         motor.
         """
         return self._motor
+
+    @property
+    def signals(self) -> MotorSignals:
+        """
+        Collection of all the signals emitted by the `Motor` class.
+
+        See `MotorSignals` for additional documentation on the
+        individual signals.
+        """
+        return self._signals
 
     @property
     def _status_defaults(self) -> Dict[str, Any]:
@@ -1016,7 +1058,7 @@ class Motor(EventActor):
             return
 
         self._status = new_status
-        self.status_changed.emit()
+        self.signals.status_changed.emit()
 
     def connect(self):
         """
@@ -1530,9 +1572,9 @@ class Motor(EventActor):
         if "moving" not in _status:
             pass
         elif _status["moving"] and not self._status["moving"]:
-            self.movement_started.emit()
+            self.signals.movement_started.emit()
         elif not _status["moving"] and self._status["moving"]:
-            self.movement_finished.emit()
+            self.signals.movement_finished.emit()
 
         self._update_status(**_status)
 
@@ -1661,9 +1703,9 @@ class Motor(EventActor):
         self.logger.info("Terminating motor")
 
         # disconnect all signals before terminating
-        self.status_changed.disconnect_all()
-        self.movement_started.disconnect_all()
-        self.movement_finished.disconnect_all()
+        self.signals.status_changed.disconnect_all()
+        self.signals.movement_started.disconnect_all()
+        self.signals.movement_finished.disconnect_all()
 
         if not self.terminated and self._status["connected"]:
             self.stop()
