@@ -385,6 +385,10 @@ class Drive(EventActor):
                     f"perform STOP command."
                 )
                 continue
+
+            if not ax.connected:
+                continue
+
             _rtn = ax.stop(soft=soft)
             rtn.append(_rtn)
 
