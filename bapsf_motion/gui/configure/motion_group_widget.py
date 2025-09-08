@@ -146,6 +146,82 @@ class MSpaceMessageBox(QMessageBox):
         return False
 
 
+class LostConnectionMessageBox(QMessageBox):
+    """
+    Modal warning dialog box to warn the user that the TCP connection
+    to a physical motor was lost.
+    """
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+
+        self._display_dialog = True
+
+        self.setWindowTitle("Lost TCP Connection to Motor")
+        self._base_message = "Lost TCP connection to physical motor."
+        self._lost_motors = {}
+        font = self.font()
+        font.setPointSize(14)
+        self.setFont(font)
+        self.setText(self._base_message)
+
+        self.setIcon(QMessageBox.Icon.Warning)
+        self.setStandardButtons(QMessageBox.StandardButton.Discard)
+        self.setDefaultButton(QMessageBox.StandardButton.Discard)
+
+    @property
+    def display_dialog(self) -> bool:
+        return self._display_dialog
+
+    @display_dialog.setter
+    def display_dialog(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            return
+
+        self._display_dialog = value
+
+    def _update_display_dialog(self) -> None:
+        if len(self._lost_motors) == 0:
+            self.setText(self._base_message)
+
+            if self.isVisible():
+                self.defaultButton().click()
+            return None
+
+        msg = self._base_message + "\n\n"
+        for name, ip in self._lost_motors.items():
+            msg += f"    {name} : {ip}\n"
+
+        self.setText(msg)
+
+        if not self.isVisible():
+            self.exec()
+
+        return None
+
+    def register_lost_motor(self, name: str, ip: str) -> None:
+        if name in self._lost_motors:
+            return
+
+        self._lost_motors[name] = ip
+        self._update_display_dialog()
+
+    def register_resolved_motor(self, name):
+        if name not in self._lost_motors:
+            return
+
+        self._lost_motors.pop(name)
+        self._update_display_dialog()
+
+    def exec(self) -> bool:
+        if not self.display_dialog:
+            return True
+
+        super().exec()
+
+        return True
+
+
 class PyGameJoystickRunnerSignals(QObject):
     buttonPressed = Signal(int)
     hatPressed = Signal(int, int)
@@ -308,6 +384,8 @@ class AxisControlWidget(QWidget):
     movementStopped = Signal(int)
     axisStatusChanged = Signal()
     targetPositionChanged = Signal(float)
+    lostConnection = Signal()
+    establishedConnection = Signal()
 
     def __init__(
         self,
@@ -417,10 +495,17 @@ class AxisControlWidget(QWidget):
         if hasattr(parent, "mspace_warning_dialog"):
             self.mspace_warning_dialog = parent.mspace_warning_dialog
 
+        self.lost_connection_dialog = None  # type: Union[LostConnectionMessageBox, None]
+        if hasattr(parent, "lost_connection_dialog"):
+            self.lost_connection_dialog = parent.lost_connection_dialog
+
         self.setLayout(self._define_layout())
         self._connect_signals()
 
     def _connect_signals(self):
+        # Note: Connecting/disconnecting of SimpleSignals happens in
+        #       the link_axis and unlink_axis methods respectively
+        #
         self._update_display_timer.timeout.connect(
             self._update_display_of_axis_status
         )
@@ -438,6 +523,9 @@ class AxisControlWidget(QWidget):
         self.enable_btn.clicked.connect(self._set_motor_enabled_state)
         self.movementStopped.connect(self._disable_motor)
         self.movementStopped.connect(self._update_display_of_axis_status)
+
+        self.establishedConnection.connect(self._handle_connection_established)
+        self.lostConnection.connect(self._handle_connection_lost)
 
     def _define_layout(self):
         layout = QVBoxLayout()
@@ -668,8 +756,10 @@ class AxisControlWidget(QWidget):
     @Slot()
     def _update_display_of_axis_status(self):
         if self._mg.terminated:
+            self.setEnabled(False)
             return
 
+        self.setEnabled(self.axis.connected)
         if not self.isEnabled():
             return
 
@@ -728,22 +818,44 @@ class AxisControlWidget(QWidget):
         self._axis_index = ax_index
 
         self.axis_name_label.setText(self.axis.name)
+
+        # connect motor SimpleSignals
+        self.axis.motor.signals.connection_established.connect(
+            self._emit_connection_established
+        )
+        self.axis.motor.signals.connection_lost.connect(
+            self._emit_connection_lost
+        )
         self.axis.motor.signals.status_changed.connect(self.update_display_of_axis_status)
         self.axis.motor.signals.status_changed.connect(self.axisStatusChanged.emit)
         self.axis.motor.signals.movement_started.connect(self._emit_movement_started)
         self.axis.motor.signals.movement_finished.connect(self._emit_movement_finished)
-        self.axis.motor.signals.movement_finished.connect(self.update_display_of_axis_status)
-        self.update_display_of_axis_status()
+        self.axis.motor.signals.movement_finished.connect(
+            self.update_display_of_axis_status
+        )
 
+        self.update_display_of_axis_status()
         self.axisLinked.emit()
 
     def unlink_axis(self):
         if self.axis is not None:
-            # self.axis.terminate(delay_loop_stop=True)
-            self.axis.motor.signals.status_changed.disconnect(self.update_display_of_axis_status)
-            self.axis.motor.signals.status_changed.connect(self.axisStatusChanged.emit)
-            self.axis.motor.signals.movement_started.connect(self._emit_movement_started)
-            self.axis.motor.signals.movement_finished.connect(self._emit_movement_finished)
+            # disconnect all motor SimpleSignals
+            self.axis.motor.signals.connection_established.disconnect(
+                self._emit_connection_established
+            )
+            self.axis.motor.signals.connection_lost.disconnect(
+                self._emit_connection_lost
+            )
+            self.axis.motor.signals.status_changed.disconnect(
+                self.update_display_of_axis_status
+            )
+            self.axis.motor.signals.status_changed.disconnect(self.axisStatusChanged.emit)
+            self.axis.motor.signals.movement_started.disconnect(
+                self._emit_movement_started
+            )
+            self.axis.motor.signals.movement_finished.disconnect(
+                self._emit_movement_finished
+            )
             self.axis.motor.signals.movement_finished.disconnect(
                 self.update_display_of_axis_status
             )
@@ -751,6 +863,48 @@ class AxisControlWidget(QWidget):
         self._mg = None
         self._axis_index = None
         self.axisUnlinked.emit()
+
+    @Slot()
+    def _emit_connection_established(self):
+        self.establishedConnection.emit()
+
+    @Slot()
+    def _emit_connection_lost(self):
+        self.lostConnection.emit()
+
+    @Slot()
+    def _handle_connection_lost(self):
+        # Note: This slot needs to be trigger from a PySide6 signal and
+        #       not from any of the SimpleSignals attached to Motor.
+        #       Having the SimpleSignal execute this code risks the
+        #       execution of an unsafe thread operation.  The Motor
+        #       event-loop is executing in a different thread that is
+        #       unmanaged by PySide6.
+        if self.lost_connection_dialog is None:
+            return None
+
+        self.lost_connection_dialog.register_lost_motor(
+            self.axis.name,
+            self.axis.motor.ip,
+        )
+        self.setEnabled(False)
+
+    @Slot()
+    def _handle_connection_established(self):
+        # Note: This slot needs to be trigger from a PySide6 signal and
+        #       not from any of the SimpleSignals attached to Motor.
+        #       Having the SimpleSignal execute this code risks the
+        #       execution of an unsafe thread operation.  The Motor
+        #       event-loop is executing in a different thread that is
+        #       unmanaged by PySide6.
+        if self.lost_connection_dialog is None:
+            return None
+
+        self.lost_connection_dialog.register_resolved_motor(self.axis.name)
+
+        self.setEnabled(True)
+        self.update_display_of_axis_status()
+        self.axisStatusChanged.emit()
 
     @Slot()
     def _emit_movement_started(self):
@@ -776,10 +930,22 @@ class AxisControlWidget(QWidget):
         self.logger.info("Closing AxisControlWidget")
 
         if isinstance(self.axis, Axis):
-            self.axis.motor.signals.status_changed.disconnect(self.update_display_of_axis_status)
+            self.axis.motor.signals.connection_established.disconnect(
+                self._emit_connection_established
+            )
+            self.axis.motor.signals.connection_lost.disconnect(
+                self._emit_connection_lost
+            )
+            self.axis.motor.signals.status_changed.disconnect(
+                self.update_display_of_axis_status
+            )
             self.axis.motor.signals.status_changed.disconnect(self.axisStatusChanged.emit)
-            self.axis.motor.signals.movement_started.disconnect(self._emit_movement_started)
-            self.axis.motor.signals.movement_finished.disconnect(self._emit_movement_finished)
+            self.axis.motor.signals.movement_started.disconnect(
+                self._emit_movement_started
+            )
+            self.axis.motor.signals.movement_finished.disconnect(
+                self._emit_movement_finished
+            )
             self.axis.motor.signals.movement_finished.disconnect(
                 self.update_display_of_axis_status
             )
@@ -805,6 +971,10 @@ class DriveBaseController(QWidget):
         self.mspace_warning_dialog = None
         if hasattr(parent, "mspace_warning_dialog"):
             self.mspace_warning_dialog = parent.mspace_warning_dialog
+
+        self.lost_connection_dialog = None
+        if hasattr(parent, "lost_connection_dialog"):
+            self.lost_connection_dialog = parent.lost_connection_dialog
 
         self._mg = None
         self._mspace_drive_polarity = None
@@ -916,6 +1086,8 @@ class DriveBaseController(QWidget):
         for ii, ax in enumerate(self.mg.drive.axes):
             acw = self._axis_control_widgets[ii]
             acw.link_axis(self.mg, ii)
+            acw.establishedConnection.connect(self._drive_connection_established)
+            acw.lostConnection.connect(self._drive_connection_lost)
             acw.movementStarted.connect(self._drive_movement_started)
             acw.movementStopped.connect(self._drive_movement_finished)
             acw.axisStatusChanged.connect(self.update_all_axis_displays)
@@ -923,6 +1095,8 @@ class DriveBaseController(QWidget):
             acw.show()
 
         self.setEnabled(not self._mg.terminated)
+        if not all(self.mg.drive.connected):
+            self.setEnabled(False)
         self._determine_mspace_drive_polarity()
 
     def unlink_motion_group(self):
@@ -933,6 +1107,8 @@ class DriveBaseController(QWidget):
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
+                acw.establishedConnection.disconnect(self._drive_connection_established)
+                acw.lostConnection.disconnect(self._drive_connection_lost)
                 acw.movementStarted.disconnect(self._drive_movement_started)
                 acw.movementStopped.disconnect(self._drive_movement_finished)
                 acw.axisStatusChanged.disconnect(self.update_all_axis_displays)
@@ -970,6 +1146,19 @@ class DriveBaseController(QWidget):
                 continue
 
             acw.enable_motion_buttons()
+
+    @Slot()
+    def _drive_connection_lost(self):
+        self.mg.drive.stop()
+        self.setEnabled(False)
+
+    @Slot()
+    def _drive_connection_established(self):
+        if not isinstance(self.mg, MotionGroup) or not isinstance(self.mg.drive, Drive):
+            return
+
+        if all(self.mg.drive.connected):
+            self.setEnabled(True)
 
     @Slot(int)
     def _drive_movement_started(self, axis_index):
@@ -1473,6 +1662,11 @@ class DriveGameController(DriveBaseController):
     def zero_drive(self):
         self.mg.set_zero()
 
+    @Slot()
+    def _drive_connection_lost(self):
+        super()._drive_connection_lost()
+        self.disconnect_controller()
+
     @Slot(bool)
     def _update_connect_led(self, value):
         self.connected_led.setChecked(value)
@@ -1586,6 +1780,8 @@ class DriveControlWidget(QWidget):
         # Define TEXT WIDGETS
         # Define ADVANCED WIDGETS
         self.mspace_warning_dialog = MSpaceMessageBox(parent=self)
+        self.lost_connection_dialog = LostConnectionMessageBox(parent=self)
+
         self.desktop_controller_widget = DriveDesktopController(parent=self)
         self.game_controller_widget = None  # type: Union[DriveBaseController, None]
         self.stacked_controller_widget = QStackedWidget(parent=self)

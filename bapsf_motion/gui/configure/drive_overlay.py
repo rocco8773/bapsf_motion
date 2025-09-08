@@ -9,6 +9,7 @@ import asyncio
 import logging
 import warnings
 
+from functools import partial
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
@@ -33,16 +34,21 @@ from bapsf_motion.gui.widgets import (
     LED,
     StyleButton,
 )
-from bapsf_motion.utils import ipv4_pattern, _deepcopy_dict, loop_safe_stop
+from bapsf_motion.utils import (
+    _deepcopy_dict,
+    dict_equal,
+    ipv4_pattern,
+    loop_safe_stop,
+)
 
 
 class AxisConfigWidget(QWidget):
     configChanged = Signal()
-    axis_loop = asyncio.new_event_loop()
 
     def __init__(self, name, parent=None):
         super().__init__(parent=parent)
 
+        self.axis_loop = asyncio.new_event_loop()
         self._logger = logging.getLogger(f"{gui_logger.name}.ACW")
         self._ip_handlers = []
 
@@ -248,15 +254,33 @@ class AxisConfigWidget(QWidget):
 
     @axis_config.setter
     def axis_config(self, config):
-        # TODO: this needs to be more robust
-        self._axis_config = {**self.axis_config, **config}
+        _axis_config = {**self.axis_config, **config}
 
-        self.configChanged.emit()
+        if (
+            isinstance(self.axis, Axis)
+            and dict_equal(_axis_config, self.axis.config)
+            and not self.axis.terminated
+        ):
+            # nothing has changed
+            return
+
+        if isinstance(self.axis, Axis):
+            # configuration has changed and is different from current axis actor
+            self.blockSignals(True)
+            self.axis.terminate(delay_loop_stop=True)
+            self.axis = None
+            self.blockSignals(False)
+
+        self._axis_config = _axis_config
+
+        self.blockSignals(True)
         self._check_axis_completeness()
+        self.blockSignals(False)
+        self.configChanged.emit()
 
     def _check_axis_completeness(self):
         if isinstance(self.axis, Axis):
-            return False
+            return self.axis.connected
 
         _completeness = {"name", "ip", "units", "units_per_rev"}
         if _completeness - set(self.axis_config.keys()):
@@ -265,7 +289,10 @@ class AxisConfigWidget(QWidget):
             return False
 
         self._spawn_axis()
-        return True
+        if isinstance(self.axis, Axis):
+            return self.axis.connected
+
+        return False
 
     @Slot()
     def _change_cm_per_rev(self):
@@ -277,13 +304,9 @@ class AxisConfigWidget(QWidget):
             self.configChanged.emit()
             return
 
-        if self.axis is not None:
-            self.axis.units_per_rev = new_cpr
-        else:
-            self.axis_config["units_per_rev"] = new_cpr
-
-        self.configChanged.emit()
-        self._check_axis_completeness()
+        config = self.axis_config
+        config["units_per_rev"] = new_cpr
+        self.axis_config = config
 
     @Slot()
     def _change_ip_address(self):
@@ -294,19 +317,18 @@ class AxisConfigWidget(QWidget):
             self.configChanged.emit()
             return
 
-        if self.axis is not None:
-            config = self.axis_config
-            config["ip"] = new_ip
+        old_ip = self.axis_config["ip"]
+        if old_ip == new_ip:
+            # nothing has changed
+            return
 
+        config = self.axis_config
+        config["ip"] = new_ip
+        if isinstance(self.axis, Axis):
             self.axis.terminate(delay_loop_stop=True)
-
-            self._axis_config = config
             self.axis = None
-        else:
-            self.axis_config["ip"] = new_ip
 
-        self.configChanged.emit()
-        self._check_axis_completeness()
+        self.axis_config = config
 
     @Slot()
     def _change_limit_mode(self):
@@ -329,7 +351,10 @@ class AxisConfigWidget(QWidget):
     def _spawn_axis(self) -> Union[Axis, None]:
         self.logger.info("Spawning Axis.")
         if isinstance(self.axis, Axis):
+            self.blockSignals(True)
             self.axis.terminate(delay_loop_stop=True)
+            self.axis = None
+            self.blockSignals(False)
 
         try:
             axis = Axis(
@@ -339,7 +364,8 @@ class AxisConfigWidget(QWidget):
                 auto_run=True,
             )
 
-            axis.motor.signals.status_changed.connect(self._update_online_led)
+            axis.motor.signals.connection_established.connect(self.configChanged.emit)
+            axis.motor.signals.connection_lost.connect(self.configChanged.emit)
         except ConnectionError:
             axis = None
 
@@ -358,7 +384,6 @@ class AxisConfigWidget(QWidget):
     @Slot()
     def _update_online_led(self):
         online = False
-
         if isinstance(self.axis, Axis):
             online = self.axis.connected
 
@@ -386,21 +411,6 @@ class AxisConfigWidget(QWidget):
                 return
 
         return ip
-
-    def link_external_axis(self, axis):
-        if not isinstance(axis, Axis):
-            self.logger.warning(
-                "NOT linking external axis, supplied axis is not an Axis object."
-            )
-            return
-
-        self.logger.info(f"Linking external axis {axis.name}.")
-
-        if isinstance(self.axis, Axis):
-            self.axis.terminate(delay_loop_stop=True)
-
-        axis.motor.signals.status_changed.connect(self._update_online_led)
-        self.axis = axis
 
     def set_ip_handler(self, handler: callable):
         self._ip_handlers.append(handler)
@@ -472,10 +482,7 @@ class DriveConfigOverlay(_ConfigOverlay):
 
         # Define ADVANCED WIDGETS
 
-        self.setLayout(self._define_layout())
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._connect_signals()
-
+        # initialize drive configuration
         _drive_config = None
         if isinstance(self.mg, MotionGroup) and isinstance(self.mg.drive, Drive):
             self.mg.drive.terminate(delay_loop_stop=True)
@@ -490,7 +497,12 @@ class DriveConfigOverlay(_ConfigOverlay):
         elif "drive" in parent._initial_mg_config:
             _drive_config = _deepcopy_dict(parent._initial_mg_config["drive"])
 
-        self.drive_config = _drive_config
+        self._drive_config = _drive_config
+
+        # initialize widgets
+        self.setLayout(self._define_layout())
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._connect_signals()
 
     def _connect_signals(self):
         super()._connect_signals()
@@ -508,8 +520,19 @@ class DriveConfigOverlay(_ConfigOverlay):
         layout.addWidget(HLinePlain(parent=self))
         layout.addLayout(self._define_second_row_layout())
         layout.addSpacing(24)
-        layout.addWidget(self._spawn_axis_widget("X"))
-        layout.addWidget(self._spawn_axis_widget("Y"))
+
+        drive_config = self._drive_config
+        for ii, name in enumerate(("X", "Y")):
+            layout.addWidget(self._spawn_axis_widget(name))
+
+            # initialize axis widget
+            if "axes" in drive_config:
+                try:
+                    ax_config = drive_config["axes"][ii]
+                    self.axis_widgets[ii].axis_config = ax_config
+                except KeyError:
+                    continue
+
         layout.addStretch(1)
 
         return layout
@@ -532,6 +555,8 @@ class DriveConfigOverlay(_ConfigOverlay):
         font.setPointSize(16)
         _label.setFont(font)
         name_label = _label
+
+        self._update_dr_name_widget()
 
         layout = QHBoxLayout()
         layout.addSpacing(18)
@@ -567,41 +592,13 @@ class DriveConfigOverlay(_ConfigOverlay):
             name = "A New Drive" if name == "" else name
             self._drive_config = {"name": name}
 
-        self._drive_config["axes"] = {}
+        if "axes" not in self._drive_config:
+            self._drive_config["axes"] = {}
+
         for ii, axw in enumerate(self.axis_widgets):
             self._drive_config["axes"][ii] = axw.axis_config
 
         return self._drive_config
-
-    @drive_config.setter
-    def drive_config(self, config):
-        # TODO: this needs to be more robust...actually validate the config
-        if config is None or not config:
-            self._drive_config = None
-            self.configChanged.emit()
-            return
-        # elif "name" not in config:
-        #     self.logger.warning("Drive configuration does not supply a name.")
-        #     return
-        # elif "axes" not in config:
-        #     self.logger.warning("Drive configuration does not define axes.")
-        #     return
-        # elif len(config["axes"]) != 2:
-        #     self.logger.warning("Drive can only have 2 axes!!")
-        # elif all(["ip" in ax_config for ax_config in config.values()]):
-        #     ...
-
-        try:
-            self._spawn_drive(config)
-        except (TypeError, ValueError, KeyError) as err:
-            self.logger.warning(
-                f"Given drive configuration is not valid, so doing nothing.",
-                exc_info=err
-            )
-            self._drive_config = (
-                None if "name" not in config else {"name": config["name"]}
-            )
-            self.configChanged.emit()
 
     @property
     def axis_widgets(self) -> List[AxisConfigWidget]:
@@ -634,17 +631,13 @@ class DriveConfigOverlay(_ConfigOverlay):
         self.validate_led.setChecked(validate)
         self.done_btn.setEnabled(validate)
 
-        if isinstance(self.drive, Drive) and not validate:
-            config = {"name": self.drive.config.pop("name")}
-
-            self.drive.terminate(delay_loop_stop=True)
+        if not validate:
             self._set_drive(None)
-
-            self.drive_config = config
 
     @Slot()
     def _update_dr_name_widget(self):
-        self.dr_name_widget.setText(self.drive_config["name"])
+        name = self.drive_config.get("name", "")
+        self.dr_name_widget.setText(name)
 
     def set_drive_handler(self, handler: callable):
         ...
@@ -674,16 +667,19 @@ class DriveConfigOverlay(_ConfigOverlay):
             self.logger.warning(
                 "Drive is not valid since not all axes are configured."
             )
+            self._change_validation_state(False)
             return
-        elif not all([axw.online_led.isChecked() for axw in self.axis_widgets]):
+        elif not all([axw.axis.connected for axw in self.axis_widgets]):
             self.logger.warning(
                 "Drive is not valid since not all axes are online."
             )
+            self._change_validation_state(False)
             return
         elif self.dr_name_widget.text() == "":
             self.logger.warning(
                 "Drive is not valid, it needs a name."
             )
+            self._change_validation_state(False)
             return
 
         # TODO: NEED AN HANDLER THAT ENSURES NO OTHER MOTION GROUP USES
@@ -706,8 +702,9 @@ class DriveConfigOverlay(_ConfigOverlay):
 
         _widget = AxisConfigWidget(name, parent=self)
         _widget.set_ip_handler(self._validate_ip)
-        _widget.configChanged.connect(self._change_validation_state)
-        _widget.configChanged.connect(self._terminate_drive)
+        _widget.configChanged.connect(
+            partial(self._change_validation_state, validate=False),
+        )
 
         self.axis_widgets.append(_widget)
 
@@ -746,37 +743,34 @@ class DriveConfigOverlay(_ConfigOverlay):
                 auto_run=False,
             )
 
-            for ii, ax in enumerate(drive.axes):
-                self.axis_widgets[ii].link_external_axis(ax)
+            # we do NOT want the drive actor to be running, since the
+            # AxisConfigWidgets will have running Axis actors
+            #
+            drive.terminate(delay_loop_stop=True)
 
-        except (ConnectionError, TimeoutError):
+            # update Axis actors
+            for ii, ax in enumerate(drive.axes):
+                self.axis_widgets[ii].axis_config = ax.config
+
+        except (ConnectionError, TimeoutError, KeyError):
             self.logger.warning("Not able to instantiate Drive.")
             drive = None
 
-            for axw in self.axis_widgets:
+        # restart Axis actors
+        for axw in self.axis_widgets:
+            if isinstance(axw.axis, Axis) and axw.axis.terminated:
                 axw.axis.run()
 
         self._set_drive(drive)
 
         return drive
 
-    @Slot()
-    def _terminate_drive(self):
-        if not isinstance(self.drive, Drive):
-            return
-
-        config = {"name": self.drive.config.pop("name")}
-
-        self.drive.terminate(delay_loop_stop=True)
-        self._set_drive(None)
-
-        self.drive_config = config
-
     def return_and_close(self):
         config = _deepcopy_dict(self.drive_config)
 
         self.configChanged.disconnect()
-        self.drive.terminate(delay_loop_stop=True)
+        if not self.drive.terminated:
+            self.drive.terminate(delay_loop_stop=True)
         self._set_drive(None)
 
         for axw in self.axis_widgets:
