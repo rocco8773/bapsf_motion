@@ -237,6 +237,13 @@ class Drive(EventActor):
     config.__doc__ = EventActor.config.__doc__
 
     @property
+    def connected(self) -> bool:
+        """
+        `True` if the TCP connection is established for ALL drive axes.
+        """
+        return all(ax.connected for ax in self.axes)
+
+    @property
     def is_moving(self) -> bool:
         """
         `True` if any axis in the |Drive| is moving, otherwise `False`.

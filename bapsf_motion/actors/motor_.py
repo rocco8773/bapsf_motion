@@ -683,6 +683,14 @@ class Motor(EventActor):
         super().run(auto_run=auto_run)
 
     @property
+    def connected(self):
+        """
+        `True` if the TCP connection is established with the physical
+        motor.
+        """
+        return self.status["connected"]
+
+    @property
     def _setup_defaults(self) -> Dict[str, Any]:
         """Default values for :attr:`setup`."""
         return {
@@ -791,7 +799,7 @@ class Motor(EventActor):
         value from send_command.
         """
         if rtn is None:
-            return not self._status["connected"]
+            return not self.connected
         elif isinstance(rtn, self.ack_flags) and rtn == self.ack_flags.LOST_CONNECTION:
             return True
         return False
@@ -1454,7 +1462,7 @@ class Motor(EventActor):
 
             self._update_status(connected=False)
             self.connect()
-            if self.status["connected"]:
+            if self.connected:
                 self.socket.sendall(cmd_str)
 
     def _recv(self) -> AnyStr:
@@ -1673,7 +1681,7 @@ class Motor(EventActor):
             elif self._pause_heartbeat:
                 await asyncio.sleep(self.heartrate.PAUSE)
                 continue
-            elif not self.status["connected"]:
+            elif not self.connected:
                 heartrate = self.heartrate.SEARCHING
             elif self.is_moving:
                 heartrate = self.heartrate.ACTIVE
@@ -1686,7 +1694,7 @@ class Motor(EventActor):
                 )
                 beats = 0
 
-            if self.status["connected"]:
+            if self.connected:
                 self.retrieve_motor_status(direct_send=True)
             else:
                 self.logger.info("Motor connection lost...trying to reconnect.")
@@ -1707,7 +1715,7 @@ class Motor(EventActor):
         self.signals.movement_started.disconnect_all()
         self.signals.movement_finished.disconnect_all()
 
-        if not self.terminated and self._status["connected"]:
+        if not self.terminated and self.connected:
             self.stop()
             self.disable()
 
