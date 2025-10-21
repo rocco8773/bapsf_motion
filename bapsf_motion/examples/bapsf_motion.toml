@@ -1,7 +1,7 @@
 [bapsf_motion.defaults]
 run_name = "bapsf_motion run configuration"
-drive.default = "benchtop_2D"
-motion_builder.default = "East - Generic XY"
+drive.default = "Hades"
+#motion_builder.default = "East - Generic XY"
 transform.default = "identity"
 
 [bapsf_motion.defaults.drive.0]
@@ -42,6 +42,51 @@ axes.1.units = "cm"
 axes.1.units_per_rev = 0.3175
 axes.1.motor_settings.limit_mode = 3  # no limits
 axes.1.motor_settings.current = 1.0
+
+[bapsf_motion.defaults.drive.3]
+name = "Athena"
+axes.0.name = "X"
+axes.0.ip = "192.168.6.17"
+axes.0.units = "cm"
+axes.0.units_per_rev = 0.254
+axes.0.motor_settings.limit_mode = 2  # no limits
+axes.0.motor_settings.current = 0.6
+axes.1.name = "Y"
+axes.1.ip = "192.168.6.18"
+axes.1.units = "cm"
+axes.1.units_per_rev = 0.254
+axes.1.motor_settings.limit_mode = 2  # no limits
+axes.1.motor_settings.current = 0.8
+
+[bapsf_motion.defaults.drive.4]
+name = "Hermes"
+axes.0.name = "X"
+axes.0.ip = "192.168.6.19"
+axes.0.units = "cm"
+axes.0.units_per_rev = 0.254
+axes.0.motor_settings.limit_mode = 2
+axes.0.motor_settings.current = 0.6
+axes.1.name = "Y"
+axes.1.ip = "192.168.6.20"
+axes.1.units = "cm"
+axes.1.units_per_rev = 0.254
+axes.1.motor_settings.limit_mode = 2
+axes.1.motor_settings.current = 0.8
+
+[bapsf_motion.defaults.drive.5]
+name = "Hades"
+axes.0.name = "X"
+axes.0.ip = "192.168.6.11"
+axes.0.units = "cm"
+axes.0.units_per_rev = 0.254
+axes.0.motor_settings.limit_mode = 2
+axes.0.motor_settings.current = 0.6
+axes.1.name = "Y"
+axes.1.ip = "192.168.6.12"
+axes.1.units = "cm"
+axes.1.units_per_rev = 0.508
+axes.1.motor_settings.limit_mode = 2
+axes.1.motor_settings.current = 0.8
 
 [bapsf_motion.defaults.transform.0]
 name = "East - Generic XY"
